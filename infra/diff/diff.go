@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"ferryman-agent/config"
-	"ferryman-agent/infra/theme"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
@@ -18,6 +16,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/sergi/go-diff/diffmatchpatch"
+
+	"ferryman-agent/config"
+	"ferryman-agent/infra/theme"
 )
 
 // -------------------------------------------------------------------------

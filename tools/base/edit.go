@@ -12,7 +12,6 @@ import (
 	"ferryman-agent/config"
 	"ferryman-agent/extensions/lsp"
 	"ferryman-agent/history"
-	"ferryman-agent/infra/diff"
 	"ferryman-agent/infra/logging"
 	"ferryman-agent/permission"
 	"ferryman-agent/tools/base/internal/support"

@@ -9,7 +9,6 @@ import (
 	"ferryman-agent/infra/logging"
 	"ferryman-agent/permission"
 	toolcore "ferryman-agent/tools/core"
-	"ferryman-agent/version"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -50,8 +49,8 @@ func runTool(ctx context.Context, c MCPClient, toolName string, input string) (t
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    "OpenCode",
-		Version: version.Version,
+		Name:    "ferry-agent",
+		Version: "1.0.0",
 	}
 
 	_, err := c.Initialize(ctx, initRequest)
@@ -144,8 +143,8 @@ func getTools(ctx context.Context, name string, m config.MCPServer, permissions 
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
-		Name:    "OpenCode",
-		Version: version.Version,
+		Name:    "ferry-agent",
+		Version: "1.0.0",
 	}
 
 	_, err := c.Initialize(ctx, initRequest)

@@ -3,14 +3,13 @@ package agenttool
 import (
 	"context"
 	"encoding/json"
+	agent "ferryman-agent"
 	"fmt"
 
-	sdkagent "ferryman-agent/agent"
 	sdkconfig "ferryman-agent/config"
 	agentlsp "ferryman-agent/extensions/lsp"
 	"ferryman-agent/message"
 	"ferryman-agent/session"
-	agenttools "ferryman-agent/tools"
 	basetools "ferryman-agent/tools/base"
 	toolcore "ferryman-agent/tools/core"
 )
@@ -57,20 +56,17 @@ func (b *Tool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.ToolRe
 		return toolcore.ToolResponse{}, fmt.Errorf("session_id and message_id are required")
 	}
 
-	runner, err := sdkagent.NewAgent(
+	runner, err := agent.NewAgent(
 		sdkconfig.AgentTask,
 		b.sessions,
 		b.messages,
-		agenttools.NewTaskToolset(
-			agenttools.WithLSPClients(b.lspClients),
-			agenttools.WithBaseTools(
-				basetools.NewGlobTool(),
-				basetools.NewGrepTool(),
-				basetools.NewLsTool(),
-				basetools.NewSourcegraphTool(),
-				basetools.NewViewTool(b.lspClients),
-			),
-		),
+		[]toolcore.BaseTool{
+			basetools.NewGlobTool(),
+			basetools.NewGrepTool(),
+			basetools.NewLsTool(),
+			basetools.NewSourcegraphTool(),
+			basetools.NewViewTool(b.lspClients),
+		},
 	)
 	if err != nil {
 		return toolcore.ToolResponse{}, fmt.Errorf("error creating agent: %s", err)
