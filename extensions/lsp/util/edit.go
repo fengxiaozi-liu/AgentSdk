@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/opencode-ai/opencode/agent/extensions/lsp/protocol"
+	"ferryman-agent/extensions/lsp/protocol"
 )
 
 func applyTextEdits(uri protocol.DocumentUri, edits []protocol.TextEdit) error {

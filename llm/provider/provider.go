@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/opencode-ai/opencode/agent/llm/models"
-	"github.com/opencode-ai/opencode/agent/llm/tools"
-	"github.com/opencode-ai/opencode/agent/message"
+	"ferryman-agent/llm/models"
+	"ferryman-agent/message"
+	toolcore "ferryman-agent/tools/core"
 )
 
 type EventType string
@@ -51,9 +51,9 @@ type ProviderEvent struct {
 	Error    error
 }
 type Provider interface {
-	SendMessages(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error)
+	SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*ProviderResponse, error)
 
-	StreamResponse(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent
+	StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent
 
 	Model() models.Model
 }
@@ -74,8 +74,8 @@ type providerClientOptions struct {
 type ProviderClientOption func(*providerClientOptions)
 
 type ProviderClient interface {
-	send(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error)
-	stream(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent
+	send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*ProviderResponse, error)
+	stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent
 }
 
 type baseProvider[C ProviderClient] struct {
@@ -180,7 +180,7 @@ func (p *baseProvider[C]) cleanMessages(messages []message.Message) (cleaned []m
 	return
 }
 
-func (p *baseProvider[C]) SendMessages(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error) {
+func (p *baseProvider[C]) SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*ProviderResponse, error) {
 	messages = p.cleanMessages(messages)
 	return p.client.send(ctx, messages, tools)
 }
@@ -189,7 +189,7 @@ func (p *baseProvider[C]) Model() models.Model {
 	return p.options.model
 }
 
-func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent {
+func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
 	messages = p.cleanMessages(messages)
 	return p.client.stream(ctx, messages, tools)
 }

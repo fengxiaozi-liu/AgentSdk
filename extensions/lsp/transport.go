@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
+	"ferryman-agent/config"
+	"ferryman-agent/infra/logging"
 )
 
 // Write writes an LSP message to the given writer

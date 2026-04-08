@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/opencode-ai/opencode/agent/extensions/lsp/protocol"
+	"ferryman-agent/extensions/lsp/protocol"
 )
 
 func DetectLanguageID(uri string) protocol.LanguageKind {

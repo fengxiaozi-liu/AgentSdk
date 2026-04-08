@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/opencode-ai/opencode/agent/history"
-	"github.com/opencode-ai/opencode/agent/message"
-	"github.com/opencode-ai/opencode/agent/pubsub"
-	"github.com/opencode-ai/opencode/agent/session"
+	"ferryman-agent/history"
+	"ferryman-agent/message"
+	"ferryman-agent/pubsub"
+	"ferryman-agent/session"
 )
 
 type sessionStub struct {

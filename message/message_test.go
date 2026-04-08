@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/opencode-ai/opencode/agent/session"
-	"github.com/opencode-ai/opencode/agent/testutil"
-	"github.com/opencode-ai/opencode/agent/llm/models"
+	"ferryman-agent/llm/models"
+	"ferryman-agent/session"
+	"ferryman-agent/testutil"
 )
 
 func TestServiceCreateAndList(t *testing.T) {

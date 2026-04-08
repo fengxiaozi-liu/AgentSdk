@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/opencode-ai/opencode/agent/llm/models"
-	"github.com/opencode-ai/opencode/agent/message"
+	"ferryman-agent/llm/models"
+	"ferryman-agent/message"
 )
 
 func TestMockProviderSendMessages(t *testing.T) {

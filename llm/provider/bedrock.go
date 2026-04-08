@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/opencode-ai/opencode/agent/llm/tools"
-	"github.com/opencode-ai/opencode/agent/message"
+	"ferryman-agent/message"
+	toolcore "ferryman-agent/tools/core"
 )
 
 type bedrockOptions struct {
@@ -75,14 +75,14 @@ func newBedrockClient(opts providerClientOptions) BedrockClient {
 	}
 }
 
-func (b *bedrockClient) send(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error) {
+func (b *bedrockClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*ProviderResponse, error) {
 	if b.childProvider == nil {
 		return nil, errors.New("unsupported model for bedrock provider")
 	}
 	return b.childProvider.send(ctx, messages, tools)
 }
 
-func (b *bedrockClient) stream(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent {
+func (b *bedrockClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
 	eventChan := make(chan ProviderEvent)
 
 	if b.childProvider == nil {
@@ -98,4 +98,3 @@ func (b *bedrockClient) stream(ctx context.Context, messages []message.Message, 
 
 	return b.childProvider.stream(ctx, messages, tools)
 }
-

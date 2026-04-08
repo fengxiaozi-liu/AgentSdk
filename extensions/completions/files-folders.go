@@ -6,11 +6,38 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"ferryman-agent/infra/fileutil"
+	"ferryman-agent/infra/logging"
 	"github.com/lithammer/fuzzysearch/fuzzy"
-	"github.com/opencode-ai/opencode/agent/infra/fileutil"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
-	"github.com/opencode-ai/opencode/internal/tui/components/dialog"
 )
+
+type CompletionItem struct {
+	Title string
+	Value string
+}
+
+type CompletionItemI interface {
+	GetValue() string
+	DisplayValue() string
+}
+
+func (ci CompletionItem) GetValue() string {
+	return ci.Value
+}
+
+func (ci CompletionItem) DisplayValue() string {
+	return ci.Title
+}
+
+func NewCompletionItem(item CompletionItem) CompletionItemI {
+	return item
+}
+
+type CompletionProvider interface {
+	GetId() string
+	GetEntry() CompletionItemI
+	GetChildEntries(query string) ([]CompletionItemI, error)
+}
 
 type filesAndFoldersContextGroup struct {
 	prefix string
@@ -20,8 +47,8 @@ func (cg *filesAndFoldersContextGroup) GetId() string {
 	return cg.prefix
 }
 
-func (cg *filesAndFoldersContextGroup) GetEntry() dialog.CompletionItemI {
-	return dialog.NewCompletionItem(dialog.CompletionItem{
+func (cg *filesAndFoldersContextGroup) GetEntry() CompletionItemI {
+	return NewCompletionItem(CompletionItem{
 		Title: "Files & Folders",
 		Value: "files",
 	})
@@ -159,15 +186,15 @@ func (cg *filesAndFoldersContextGroup) getFiles(query string) ([]string, error) 
 	return matches, nil
 }
 
-func (cg *filesAndFoldersContextGroup) GetChildEntries(query string) ([]dialog.CompletionItemI, error) {
+func (cg *filesAndFoldersContextGroup) GetChildEntries(query string) ([]CompletionItemI, error) {
 	matches, err := cg.getFiles(query)
 	if err != nil {
 		return nil, err
 	}
 
-	items := make([]dialog.CompletionItemI, 0, len(matches))
+	items := make([]CompletionItemI, 0, len(matches))
 	for _, file := range matches {
-		item := dialog.NewCompletionItem(dialog.CompletionItem{
+		item := NewCompletionItem(CompletionItem{
 			Title: file,
 			Value: file,
 		})
@@ -177,7 +204,7 @@ func (cg *filesAndFoldersContextGroup) GetChildEntries(query string) ([]dialog.C
 	return items, nil
 }
 
-func NewFileAndFolderContextGroup() dialog.CompletionProvider {
+func NewFileAndFolderContextGroup() CompletionProvider {
 	return &filesAndFoldersContextGroup{
 		prefix: "file",
 	}

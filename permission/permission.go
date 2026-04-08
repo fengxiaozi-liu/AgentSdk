@@ -6,9 +6,9 @@ import (
 	"slices"
 	"sync"
 
+	"ferryman-agent/config"
+	"ferryman-agent/pubsub"
 	"github.com/google/uuid"
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/pubsub"
 )
 
 var ErrorPermissionDenied = errors.New("permission denied")

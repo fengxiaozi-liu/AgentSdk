@@ -14,9 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
-	"github.com/opencode-ai/opencode/agent/extensions/lsp/protocol"
+	"ferryman-agent/config"
+	"ferryman-agent/extensions/lsp/protocol"
+	"ferryman-agent/infra/logging"
 )
 
 type Client struct {

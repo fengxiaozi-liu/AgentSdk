@@ -9,8 +9,8 @@ import (
 	_ "github.com/ncruces/go-sqlite3/driver"
 	_ "github.com/ncruces/go-sqlite3/embed"
 
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
+	"ferryman-agent/config"
+	"ferryman-agent/infra/logging"
 
 	"github.com/pressly/goose/v3"
 )

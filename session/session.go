@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 
+	agentdb "ferryman-agent/infra/db"
+	"ferryman-agent/pubsub"
 	"github.com/google/uuid"
-	agentdb "github.com/opencode-ai/opencode/agent/infra/db"
-	"github.com/opencode-ai/opencode/agent/pubsub"
 )
 
 type Session struct {

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"ferryman-agent/config"
+	"ferryman-agent/infra/logging"
+	"ferryman-agent/message"
+	toolcore "ferryman-agent/tools/core"
 	"github.com/google/uuid"
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/llm/tools"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
-	"github.com/opencode-ai/opencode/agent/message"
 	"google.golang.org/genai"
 )
 
@@ -132,7 +132,7 @@ func (g *geminiClient) convertMessages(messages []message.Message) []*genai.Cont
 	return history
 }
 
-func (g *geminiClient) convertTools(tools []tools.BaseTool) []*genai.Tool {
+func (g *geminiClient) convertTools(tools []toolcore.BaseTool) []*genai.Tool {
 	geminiTool := &genai.Tool{}
 	geminiTool.FunctionDeclarations = make([]*genai.FunctionDeclaration, 0, len(tools))
 
@@ -165,7 +165,7 @@ func (g *geminiClient) finishReason(reason genai.FinishReason) message.FinishRea
 	}
 }
 
-func (g *geminiClient) send(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (*ProviderResponse, error) {
+func (g *geminiClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*ProviderResponse, error) {
 	// Convert messages
 	geminiMessages := g.convertMessages(messages)
 
@@ -253,7 +253,7 @@ func (g *geminiClient) send(ctx context.Context, messages []message.Message, too
 	}
 }
 
-func (g *geminiClient) stream(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent {
+func (g *geminiClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
 	// Convert messages
 	geminiMessages := g.convertMessages(messages)
 

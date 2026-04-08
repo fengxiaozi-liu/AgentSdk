@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/opencode-ai/opencode/agent/llm/tools"
-	"github.com/opencode-ai/opencode/agent/message"
+	"ferryman-agent/message"
+	toolcore "ferryman-agent/tools/core"
 )
 
 type MockClient struct {
@@ -16,12 +16,12 @@ func newMockClient(options providerClientOptions) MockClient {
 	return MockClient{options: options}
 }
 
-func (m MockClient) send(ctx context.Context, messages []message.Message, _ []tools.BaseTool) (*ProviderResponse, error) {
+func (m MockClient) send(ctx context.Context, messages []message.Message, _ []toolcore.BaseTool) (*ProviderResponse, error) {
 	response, _, err := buildMockResponse(ctx, messages)
 	return response, err
 }
 
-func (m MockClient) stream(ctx context.Context, messages []message.Message, _ []tools.BaseTool) <-chan ProviderEvent {
+func (m MockClient) stream(ctx context.Context, messages []message.Message, _ []toolcore.BaseTool) <-chan ProviderEvent {
 	ch := make(chan ProviderEvent, 4)
 	go func() {
 		defer close(ch)

@@ -1,7 +1,7 @@
 package config
 
 import (
-	"github.com/opencode-ai/opencode/agent/llm/models"
+	"ferryman-agent/llm/models"
 )
 
 type AgentRuntimeConfig struct {

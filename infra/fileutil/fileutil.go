@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"ferryman-agent/infra/logging"
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
 )
 
 var (

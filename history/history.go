@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	agentdb "ferryman-agent/infra/db"
+	"ferryman-agent/pubsub"
 	"github.com/google/uuid"
-	agentdb "github.com/opencode-ai/opencode/agent/infra/db"
-	"github.com/opencode-ai/opencode/agent/pubsub"
 )
 
 const InitialVersion = "initial"

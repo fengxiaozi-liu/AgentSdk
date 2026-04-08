@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opencode-ai/opencode/agent/session"
-	"github.com/opencode-ai/opencode/agent/testutil"
+	"ferryman-agent/session"
+	"ferryman-agent/testutil"
 )
 
 func TestServiceCreateVersionAndListLatest(t *testing.T) {

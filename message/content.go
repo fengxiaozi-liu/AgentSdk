@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/opencode-ai/opencode/agent/llm/models"
+	"ferryman-agent/llm/models"
 )
 
 type MessageRole string

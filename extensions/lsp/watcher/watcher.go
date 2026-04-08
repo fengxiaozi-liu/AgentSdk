@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
+	"ferryman-agent/config"
+	"ferryman-agent/extensions/lsp"
+	"ferryman-agent/extensions/lsp/protocol"
+	"ferryman-agent/infra/logging"
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
-	"github.com/opencode-ai/opencode/agent/extensions/lsp"
-	"github.com/opencode-ai/opencode/agent/extensions/lsp/protocol"
 )
 
 // WorkspaceWatcher manages LSP file watching

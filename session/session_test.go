@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/opencode-ai/opencode/agent/testutil"
+	"ferryman-agent/testutil"
 )
 
 func TestServiceCreateSaveAndList(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/opencode-ai/opencode/agent/llm/models"
+	"ferryman-agent/llm/models"
 )
 
 func TestLoadAndRuntimeFor(t *testing.T) {

@@ -3,10 +3,10 @@ package lsp
 import (
 	"encoding/json"
 
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
-	"github.com/opencode-ai/opencode/agent/extensions/lsp/protocol"
-	"github.com/opencode-ai/opencode/agent/extensions/lsp/util"
+	"ferryman-agent/config"
+	"ferryman-agent/extensions/lsp/protocol"
+	"ferryman-agent/extensions/lsp/util"
+	"ferryman-agent/infra/logging"
 )
 
 // Requests

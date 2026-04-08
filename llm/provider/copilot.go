@@ -10,14 +10,14 @@ import (
 	"os"
 	"time"
 
+	"ferryman-agent/config"
+	"ferryman-agent/infra/logging"
+	"ferryman-agent/llm/models"
+	"ferryman-agent/message"
+	toolcore "ferryman-agent/tools/core"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/llm/models"
-	toolsPkg "github.com/opencode-ai/opencode/agent/llm/tools"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
-	"github.com/opencode-ai/opencode/agent/message"
 )
 
 type copilotOptions struct {
@@ -246,7 +246,7 @@ func (c *copilotClient) convertMessages(messages []message.Message) (copilotMess
 	return
 }
 
-func (c *copilotClient) convertTools(tools []toolsPkg.BaseTool) []openai.ChatCompletionToolParam {
+func (c *copilotClient) convertTools(tools []toolcore.BaseTool) []openai.ChatCompletionToolParam {
 	copilotTools := make([]openai.ChatCompletionToolParam, len(tools))
 
 	for i, tool := range tools {
@@ -306,7 +306,7 @@ func (c *copilotClient) preparedParams(messages []openai.ChatCompletionMessagePa
 	return params
 }
 
-func (c *copilotClient) send(ctx context.Context, messages []message.Message, tools []toolsPkg.BaseTool) (response *ProviderResponse, err error) {
+func (c *copilotClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *ProviderResponse, err error) {
 	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
 	cfg := config.Get()
 	var sessionId string
@@ -314,7 +314,7 @@ func (c *copilotClient) send(ctx context.Context, messages []message.Message, to
 	if cfg.Debug {
 		// jsonData, _ := json.Marshal(params)
 		// logging.Debug("Prepared messages", "messages", string(jsonData))
-		if sid, ok := ctx.Value(toolsPkg.SessionIDContextKey).(string); ok {
+		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
 			sessionId = sid
 		}
 		jsonData, _ := json.Marshal(params)
@@ -373,7 +373,7 @@ func (c *copilotClient) send(ctx context.Context, messages []message.Message, to
 	}
 }
 
-func (c *copilotClient) stream(ctx context.Context, messages []message.Message, tools []toolsPkg.BaseTool) <-chan ProviderEvent {
+func (c *copilotClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
 	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
@@ -383,7 +383,7 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 	var sessionId string
 	requestSeqId := (len(messages) + 1) / 2
 	if cfg.Debug {
-		if sid, ok := ctx.Value(toolsPkg.SessionIDContextKey).(string); ok {
+		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
 			sessionId = sid
 		}
 		jsonData, _ := json.Marshal(params)
@@ -668,4 +668,3 @@ func WithCopilotBearerToken(bearerToken string) CopilotOption {
 		options.bearerToken = bearerToken
 	}
 }
-

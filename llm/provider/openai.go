@@ -8,14 +8,14 @@ import (
 	"io"
 	"time"
 
+	"ferryman-agent/config"
+	"ferryman-agent/infra/logging"
+	"ferryman-agent/llm/models"
+	"ferryman-agent/message"
+	toolcore "ferryman-agent/tools/core"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
-	"github.com/opencode-ai/opencode/agent/config"
-	"github.com/opencode-ai/opencode/agent/llm/models"
-	"github.com/opencode-ai/opencode/agent/llm/tools"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
-	"github.com/opencode-ai/opencode/agent/message"
 )
 
 type openaiOptions struct {
@@ -125,7 +125,7 @@ func (o *openaiClient) convertMessages(messages []message.Message) (openaiMessag
 	return
 }
 
-func (o *openaiClient) convertTools(tools []tools.BaseTool) []openai.ChatCompletionToolParam {
+func (o *openaiClient) convertTools(tools []toolcore.BaseTool) []openai.ChatCompletionToolParam {
 	openaiTools := make([]openai.ChatCompletionToolParam, len(tools))
 
 	for i, tool := range tools {
@@ -185,7 +185,7 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 	return params
 }
 
-func (o *openaiClient) send(ctx context.Context, messages []message.Message, tools []tools.BaseTool) (response *ProviderResponse, err error) {
+func (o *openaiClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *ProviderResponse, err error) {
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
 	cfg := config.Get()
 	if cfg.Debug {
@@ -238,7 +238,7 @@ func (o *openaiClient) send(ctx context.Context, messages []message.Message, too
 	}
 }
 
-func (o *openaiClient) stream(ctx context.Context, messages []message.Message, tools []tools.BaseTool) <-chan ProviderEvent {
+func (o *openaiClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),

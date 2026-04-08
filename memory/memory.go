@@ -3,9 +3,9 @@ package memory
 import (
 	"context"
 
-	"github.com/opencode-ai/opencode/agent/history"
-	"github.com/opencode-ai/opencode/agent/message"
-	"github.com/opencode-ai/opencode/agent/session"
+	"ferryman-agent/history"
+	"ferryman-agent/message"
+	"ferryman-agent/session"
 )
 
 type Snapshot struct {

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"ferryman-agent/pubsub"
 	"github.com/go-logfmt/logfmt"
-	"github.com/opencode-ai/opencode/agent/pubsub"
 )
 
 const (

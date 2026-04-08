@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/opencode-ai/opencode/agent/infra/logging"
+	"ferryman-agent/infra/logging"
 	"github.com/spf13/viper"
 )
 

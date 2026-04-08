@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/opencode-ai/opencode/agent/infra/logging"
+	"ferryman-agent/infra/logging"
 	"google.golang.org/genai"
 )
 

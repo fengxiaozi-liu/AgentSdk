@@ -4,7 +4,7 @@ package lsp
 import (
 	"context"
 
-	"github.com/opencode-ai/opencode/agent/extensions/lsp/protocol"
+	"ferryman-agent/extensions/lsp/protocol"
 )
 
 // Implementation sends a textDocument/implementation request to the LSP server.

@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/opencode-ai/opencode/agent/llm/models"
-	"github.com/opencode-ai/opencode/agent/infra/logging"
+	"ferryman-agent/infra/logging"
+	"ferryman-agent/llm/models"
 	"github.com/spf13/viper"
 )
 
@@ -274,7 +274,7 @@ func setProviderDefaults() {
 		viper.SetDefault("providers.xai.apiKey", apiKey)
 	}
 	if apiKey := os.Getenv("AZURE_OPENAI_ENDPOINT"); apiKey != "" {
-		// api-key may be empty when using Entra ID credentials â€?that's okay
+		// API key may be empty when using Entra ID credentials; that's okay.
 		viper.SetDefault("providers.azure.apiKey", os.Getenv("AZURE_OPENAI_API_KEY"))
 	}
 	if apiKey, err := LoadGitHubToken(); err == nil && apiKey != "" {
