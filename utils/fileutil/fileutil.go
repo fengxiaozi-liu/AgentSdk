@@ -81,7 +81,7 @@ func SkipHidden(path string) bool {
 	}
 
 	commonIgnoredDirs := map[string]bool{
-		".opencode":        true,
+		".ferryer":         true,
 		"node_modules":     true,
 		"vendor":           true,
 		"dist":             true,

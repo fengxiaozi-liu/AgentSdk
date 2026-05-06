@@ -10,11 +10,11 @@ import (
 
 	"ferryman-agent/config"
 	"ferryman-agent/history"
-	"ferryman-agent/infra/diff"
 	"ferryman-agent/logging"
 	"ferryman-agent/permission"
-	"ferryman-agent/tools/base/internal/support"
 	toolcore "ferryman-agent/tools/core"
+	"ferryman-agent/utils/diff"
+	"ferryman-agent/utils/fileutil"
 )
 
 type PatchParams struct {
@@ -106,7 +106,7 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 			absPath = filepath.Join(wd, absPath)
 		}
 
-		if support.GetLastReadTime(absPath).IsZero() {
+		if fileutil.GetLastReadTime(absPath).IsZero() {
 			return toolcore.NewTextErrorResponse(fmt.Sprintf("you must read the file %s before patching it. Use the FileRead tool first", filePath)), nil
 		}
 
@@ -123,7 +123,7 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		}
 
 		modTime := fileInfo.ModTime()
-		lastRead := support.GetLastReadTime(absPath)
+		lastRead := fileutil.GetLastReadTime(absPath)
 		if modTime.After(lastRead) {
 			return toolcore.NewTextErrorResponse(
 				fmt.Sprintf("file %s has been modified since it was last read (mod time: %s, last read: %s)",
@@ -343,8 +343,8 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		}
 
 		// Record file operations
-		support.RecordFileWrite(absPath)
-		support.RecordFileRead(absPath)
+		fileutil.RecordFileWrite(absPath)
+		fileutil.RecordFileRead(absPath)
 
 		hookResults = append(hookResults, p.hooks.Dispatch(ctx, toolcore.FileEvent{
 			Type:       toolcore.FilePatched,

@@ -30,7 +30,7 @@
 - **RQ-005**: `edit/write/patch/view` 等基础文件工具必须只负责基础文件操作、参数校验、路径处理、权限检查、history 记录、ToolResponse 返回和必要的变更摘要。
 - **RQ-006**: 基础 diff/patch 能力必须保留，保证 `edit/write/patch` 能继续生成变更摘要、权限审批 diff、返回 diff metadata，并支持 patch 解析与应用。
 - **RQ-007**: SDK 不得保留面向终端展示的彩色 diff renderer；diff 核心能力不得依赖 theme/lipgloss 等 UI 样式能力。
-- **RQ-008**: diff/patch 核心能力本次不得迁入 `utils/diff`；`utils` 目录如被引入，仅用于 fileutil 等非 diff 基础工具能力收敛。
+- **RQ-008**: diff/patch 核心能力应迁入 `utils/diff`，不再保留 `infra/diff` 或 `infra` 目录。
 - **RQ-009**: 工具系统必须提供可扩展 hook/event 边界，使外部宿主可以在文件查看、编辑、写入、patch 等事件后自行接入 LSP diagnostics、format、lint、test trigger、索引刷新等可选增强能力。
 - **RQ-010**: 数据访问层需要完成 repo 抽象和底层数据源替换，使 session/message/history 能通过稳定的数据访问边界工作，并为后续替换数据源提供空间。
 - **RQ-011**: LLM model/provider 边界需要简化，SDK 不应承担维护庞大内置 SupportedModels 展示表的职责，调用方应能通过配置选择模型。
@@ -57,8 +57,8 @@
 ### 约束与边界
 
 - 本次改造不建设 Skill manifest、Skill loader、Skill registry、Skill Tool adapter，也不把 Skill 作为默认工具来源。
-- 基础 diff/patch 能力保留；不得因为删除终端 diff renderer 而破坏 `edit/write/patch` 的变更摘要、权限审批或响应 metadata。
-- `utils/diff` 不作为本次目标目录；如果发生目录收敛，diff/patch 核心能力仍保留在现有基础包或后续明确的新边界中。
+- 基础 diff/patch 能力保留；不得因为删除终端 diff renderer 或迁移目录而破坏 `edit/write/patch` 的变更摘要、权限审批或响应 metadata。
+- `utils/diff` 作为 diff/patch core 的目标目录；迁移后不得保留 `infra/diff`。
 - CLI/TUI 交互能力不属于 SDK 核心交付物；未来 CLI 项目可独立实现并注册所需 Tool 或 Hook。
 - `infra/format`、`infra/theme` 和整个 `extensions` 模块必须直接从 SDK 仓库删除，由未来 CLI/IDE 宿主项目自行承接相关能力。
 - 本次允许破坏性 API 变更，以清晰 SDK 边界为优先。

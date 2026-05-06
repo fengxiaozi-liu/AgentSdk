@@ -12,8 +12,8 @@ import (
 
 	"ferryman-agent/config"
 	"ferryman-agent/logging"
-	"ferryman-agent/tools/base/internal/support"
 	toolcore "ferryman-agent/tools/core"
+	"ferryman-agent/utils/fileutil"
 )
 
 type ViewParams struct {
@@ -185,7 +185,7 @@ func (v *viewTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 			params.Offset+len(strings.Split(content, "\n")))
 	}
 	output += "\n</file>\n"
-	support.RecordFileRead(filePath)
+	fileutil.RecordFileRead(filePath)
 	sessionID, messageID := toolcore.GetContextValues(ctx)
 	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse(output),

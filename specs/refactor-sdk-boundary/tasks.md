@@ -27,11 +27,11 @@
 
 ## Phase 2：diff core 保留与终端 renderer 移除
 
-- [✅] T006 [Diff] [RQ-006,RQ-007,RQ-008] 拆除 `infra/diff` 中 side-by-side 彩色渲染、theme/lipgloss 相关类型和函数，保留纯 diff/patch core `infra/diff/diff.go`, `infra/diff/patch.go`
-- [✅] T007 [Diff] [RQ-006,RQ-007,RQ-008] 确认 `GenerateDiff`、增删行统计、patch 解析、patch 应用 API 仍满足 `edit/write/patch` 调用 `infra/diff/*`
+- [✅] T006 [Diff] [RQ-006,RQ-007,RQ-008] 拆除 `infra/diff` 中 side-by-side 彩色渲染、theme/lipgloss 相关类型和函数，并将纯 diff/patch core 迁入 `utils/diff/diff.go`, `utils/diff/patch.go`
+- [✅] T007 [Diff] [RQ-006,RQ-007,RQ-008] 确认 `GenerateDiff`、增删行统计、patch 解析、patch 应用 API 仍满足 `edit/write/patch` 调用 `utils/diff/*`
 - [✅] T008 [Tools] [RQ-006] 修复 `tools/base/edit.go`, `tools/base/write.go`, `tools/base/patch.go` 中因 diff 拆分产生的导入或 API 调整
-- [✅] T009 [Test] [RQ-006,RQ-007,RQ-014] 新增或更新 diff core 测试，覆盖 diff 生成、增删统计、patch parse/apply 且断言不依赖 theme/lipgloss `infra/diff/*_test.go`
-- [✅] T010 [Validation] [RQ-007,RQ-014] 验证 diff 包中不再出现终端展示依赖 `rg -n "lipgloss|infra/theme|theme\\." infra/diff`
+- [✅] T009 [Test] [RQ-006,RQ-007,RQ-014] 新增或更新 diff core 测试，覆盖 diff 生成、增删统计、patch parse/apply 且断言不依赖 theme/lipgloss `utils/diff/*_test.go`
+- [✅] T010 [Validation] [RQ-007,RQ-014] 验证 diff 包中不再出现终端展示依赖 `rg -n "lipgloss|infra/theme|theme\\." utils/diff`
 
 ## Phase 3：基础工具与 LSP/extensions 完全解耦
 
@@ -80,12 +80,12 @@
 
 ## Phase 7：目录收敛、依赖清理与文档同步
 
-- [✅] T044 [FileUtil] [RQ-001,RQ-013] 将 `infra/fileutil` 收敛到 `utils/fileutil`，更新所有引用并确认不创建 `utils/diff` `infra/fileutil`, `utils/fileutil`
+- [✅] T044 [FileUtil] [RQ-001,RQ-013] 将 `infra/fileutil` 收敛到 `utils/fileutil`，并将 diff core 收敛到 `utils/diff`，更新所有引用 `infra/fileutil`, `utils/fileutil`, `utils/diff`
 - [✅] T045 [Logging] [RQ-001,RQ-013] 将 `infra/logging` 收敛到顶层 `logging`，更新所有引用 `infra/logging`, `logging`
 - [✅] T046 [Cleanup] [RQ-002,RQ-004,RQ-007,RQ-010,RQ-016] 清理 `go.mod`/`go.sum` 中因删除 theme、format、extensions、旧 DB 链路和硬编码 prompt 文件而不再需要的依赖 `go.mod`, `go.sum`
 - [✅] T047 [Docs] [RQ-013,RQ-016] 更新架构文档，只记录落地事实：无 `extensions`、无 CLI/TUI 模块、diff core 保留、tools/core/base/mcp 边界、data/repo 新结构、prompt 配置化 `docs/architecture.md`
 - [✅] T048 [Docs] [RQ-013,RQ-016] 同步 README 或项目入口说明，说明 SDK 职责、宿主职责、不包含 Skill/extensions/CLI UI 的边界，以及 YAML/JSON prompt 配置方式 `README.md`
-- [✅] T049 [Validation] [RQ-002,RQ-004,RQ-007,RQ-008,RQ-014,RQ-016] 执行静态验收命令并记录结果：`rg -n "infra/format|infra/theme|extensions/" . -g "*.go"`、`rg -n "lipgloss|infra/theme" infra/diff`、确认不存在 `utils/diff`、确认不存在硬编码 prompt 源文件
+- [✅] T049 [Validation] [RQ-002,RQ-004,RQ-007,RQ-008,RQ-014,RQ-016] 执行静态验收命令并记录结果：`rg -n "infra/format|infra/theme|extensions/" . -g "*.go"`、`rg -n "lipgloss|infra/theme" utils/diff`、确认不存在 `infra/diff`、确认不存在硬编码 prompt 源文件
 - [✅] T050 [Validation] [RQ-014] 运行全量测试并修复失败 `go test ./...`
 - [✅] T051 [Traceability] [RQ-001,RQ-016] 做需求覆盖复核，确认 RQ-001 至 RQ-016 均有实现、测试或文档闭环 `specs/refactor-sdk-boundary/spec.md`, `specs/refactor-sdk-boundary/plan.md`, `specs/refactor-sdk-boundary/tasks.md`
 

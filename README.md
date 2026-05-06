@@ -7,15 +7,15 @@ The SDK intentionally does not include Skill tools, CLI/TUI UI, terminal themes,
 ## Packages
 
 - `agent`: runtime orchestration and agent events
-- `config`: SDK configuration and runtime defaults
-- `data/db`, `data/repo`: data source and repository contracts
+- `config`: host-provided SDK configuration structs, defaults, validation, and injection
+- `data/db`, `data/repo`: gorm-backed database connection/models and repository contracts
 - `session`, `message`, `history`: domain services over repos
 - `llm/models`, `llm/provider`: model metadata and provider clients
 - `prompt`: JSON/YAML system prompt resolver
 - `tools/core`: tool protocol, file hook events, and hook result merging
 - `tools/base`: SDK-safe base tools
 - `tools/mcp`: MCP tool discovery and execution
-- `infra/diff`: diff/patch core only
+- `utils/diff`: diff/patch core only
 - `utils/fileutil`, `logging`: shared support utilities
 
 ## Prompts
@@ -24,4 +24,4 @@ Default prompts live in `prompt/prompts.json`. A host can provide a JSON or YAML
 
 ## Model Config
 
-Agent config uses an explicit provider plus model string. The model does not need to appear in an SDK-maintained supported-model table; provider request construction resolves the minimal metadata needed at runtime.
+Model profiles use an explicit provider plus model string. Example metadata lives in `llm/models/models.json`; provider request construction can still use arbitrary model IDs.

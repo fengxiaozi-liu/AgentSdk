@@ -4,14 +4,25 @@ import (
 	"context"
 	"testing"
 
+	"ferryman-agent/config"
 	datadb "ferryman-agent/data/db"
 )
 
 func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 	ctx := context.Background()
-	repos := NewRepositories(datadb.NewSource())
+	database, err := datadb.Open(config.DatabaseConfig{
+		Type:        config.DatabaseSQLite,
+		Path:        ":memory:",
+		AutoMigrate: true,
+	})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sessions := NewSessionRepo(database)
+	messages := NewMessageRepo(database)
+	history := NewHistoryRepo(database)
 
-	session, err := repos.Sessions.Create(ctx, CreateSessionParams{ID: "s1", Title: "root"})
+	session, err := sessions.Create(ctx, CreateSessionParams{ID: "s1", Title: "root"})
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -19,7 +30,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 		t.Fatalf("unexpected session title: %q", session.Title)
 	}
 
-	message, err := repos.Messages.Create(ctx, CreateMessageParams{
+	message, err := messages.Create(ctx, CreateMessageParams{
 		ID:        "m1",
 		SessionID: "s1",
 		Role:      "user",
@@ -32,7 +43,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 	if message.Model != "test-model" {
 		t.Fatalf("unexpected message model: %q", message.Model)
 	}
-	session, err = repos.Sessions.Get(ctx, "s1")
+	session, err = sessions.Get(ctx, "s1")
 	if err != nil {
 		t.Fatalf("get session: %v", err)
 	}
@@ -40,7 +51,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 		t.Fatalf("expected message count 1, got %d", session.MessageCount)
 	}
 
-	file, err := repos.History.Create(ctx, CreateFileParams{
+	file, err := history.Create(ctx, CreateFileParams{
 		ID:        "f1",
 		SessionID: "s1",
 		Path:      "file.txt",
@@ -53,7 +64,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 	if file.Version != "initial" {
 		t.Fatalf("unexpected file version: %q", file.Version)
 	}
-	_, err = repos.History.Create(ctx, CreateFileParams{
+	_, err = history.Create(ctx, CreateFileParams{
 		ID:        "f2",
 		SessionID: "s1",
 		Path:      "file.txt",
@@ -63,7 +74,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create file version: %v", err)
 	}
-	latest, err := repos.History.GetLatestByPathAndSession(ctx, "file.txt", "s1")
+	latest, err := history.GetLatestByPathAndSession(ctx, "file.txt", "s1")
 	if err != nil {
 		t.Fatalf("get latest file: %v", err)
 	}

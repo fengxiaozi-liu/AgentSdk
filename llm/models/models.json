@@ -1,0 +1,28 @@
+{
+  "providers": {
+    "openai": {
+      "models": {
+        "o4-mini": {
+          "id": "o4-mini",
+          "name": "o4 mini",
+          "api_model": "o4-mini",
+          "context_window": 200000,
+          "default_max_tokens": 20000,
+          "can_reason": true,
+          "supports_attachments": true
+        }
+      }
+    },
+    "__mock": {
+      "models": {
+        "mock": {
+          "id": "mock",
+          "name": "Mock",
+          "api_model": "mock",
+          "default_max_tokens": 4096,
+          "supports_attachments": true
+        }
+      }
+    }
+  }
+}

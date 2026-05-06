@@ -11,7 +11,7 @@
 
 本次改造把当前混有 CLI/TUI、LSP 工具增强、终端 diff 展示和底层数据访问细节的 Agent runtime，收敛为可被外部宿主复用的 Agent SDK。核心设计方向是：SDK 只保留 Agent 编排、会话/消息/history/权限、LLM provider、基础工具、MCP 工具和 hook/event 扩展边界；直接删除 CLI-only 模块和整个 `extensions` 模块；基础 diff/patch 能力保留但剥离终端展示；基础文件工具与 LSP 解耦；Data/Repo 同时完成 repo 抽象和底层数据源替换；允许破坏性 API 变更，优先获得清晰边界。
 
-明确不做 `tools/skill`、Skill Tool、`utils/diff`。Hook/Event 本次最小覆盖 `view/edit/write/patch`。
+明确不做 `tools/skill`、Skill Tool。Hook/Event 本次最小覆盖 `view/edit/write/patch`。
 
 ## 项目适配输入
 
@@ -32,7 +32,7 @@
 | Base Tool | Info、Run、权限、文件操作、ToolResponse metadata | 由 Agent 调用；依赖 permission、history、diff core；不得依赖 LSP diagnostics | RQ-004, RQ-005, RQ-006 |
 | MCP Tool | MCP server 配置、远端工具 schema、权限请求 | 作为外部工具来源适配为 SDK Tool | RQ-001, RQ-003 |
 | File Event / Hook | event type、path、old/new content、diff、session/tool call id | 由 `view/edit/write/patch` 发布；外部宿主注册 hook 消费 | RQ-009, RQ-015 |
-| Diff/Patch Core | unified diff、增删行统计、patch 解析、patch 应用 | 被 `edit/write/patch` 使用；不得依赖 theme/lipgloss；不迁入 `utils/diff` | RQ-006, RQ-007, RQ-008 |
+| Diff/Patch Core | unified diff、增删行统计、patch 解析、patch 应用 | 被 `edit/write/patch` 使用；不得依赖 theme/lipgloss；迁入 `utils/diff` | RQ-006, RQ-007, RQ-008 |
 | Data Repo | SessionRepo、MessageRepo、HistoryRepo、transaction | service 通过 repo 访问新数据源；替代直接 sqlc 查询依赖 | RQ-010 |
 | Prompt Config | YAML/JSON 配置、prompt key、system prompt 内容 | Agent/provider 使用；由 `prompt.go` 按 key 读取并返回 | RQ-012, RQ-016 |
 
@@ -52,7 +52,7 @@
 | `infra/format` | CLI 输出格式、spinner | SDK 仓库内存在 | 直接删除，并清理所有引用 |
 | `infra/theme` | 终端主题、diff/markdown/syntax 颜色 | 被 `infra/diff` 展示逻辑引用 | 删除前先切断 diff core 对 theme/lipgloss 的依赖 |
 | `extensions` | LSP client、protocol、watcher、输入补全 | SDK 仓库内存在 | 整体删除，并清理配置、工具和导出引用 |
-| `infra/diff` | diff/patch core + side-by-side renderer | `GenerateDiff`、patch 解析/应用、彩色 renderer 混在一起 | 保留 core，删除 renderer、theme/lipgloss 引用，不迁 `utils/diff` |
+| `utils/diff` | diff/patch core | `GenerateDiff`、patch 解析/应用 | 保留 core，删除 renderer、theme/lipgloss 引用，并从 `infra/diff` 迁移到 `utils/diff` |
 | `tools/base` | SDK 基础工具 | `view/edit/write/patch/diagnostics` 依赖 LSP client | 删除 diagnostics 默认工具；文件工具改为 hook/event 后置扩展 |
 | `tools/core` | 工具协议 | BaseTool、ToolCall、ToolResponse | 新增 FileEvent、HookResult、FileHook、registry/dispatcher 设计 |
 | `infra/db` + sqlc/goose | SQLite 连接、migration、查询代码 | service 直接或间接使用 sqlc 查询 | 新建 `data/db`、`data/repo`，引入新数据源并迁移 service |
@@ -66,10 +66,10 @@
   - 理由: 规格已澄清选择直接删除，SDK 不承担 CLI/TUI 展示、输入交互或 LSP 能力。
   - 排除方案: 移到非默认目录或暂时保留，这会延长边界模糊状态。
 
-- **DR-002**: diff 采用“保留 core，删除 renderer”
-  - 决策: `GenerateDiff`、增删统计、patch 解析和 patch 应用保留；side-by-side 彩色渲染、theme/lipgloss 依赖删除。
+- **DR-002**: diff 采用“迁入 utils/diff，保留 core，删除 renderer”
+  - 决策: `GenerateDiff`、增删统计、patch 解析和 patch 应用保留并迁入 `utils/diff`；side-by-side 彩色渲染、theme/lipgloss 依赖删除。
   - 理由: `edit/write/patch` 的权限审批、metadata 和审计仍需要基础 diff。
-  - 排除方案: 删除整个 diff 包，或迁入 `utils/diff`。
+  - 排除方案: 删除整个 diff 包，或继续保留 `infra/diff`。
 
 - **DR-003**: LSP 完全移出 SDK
   - 决策: 删除 `extensions/lsp` 及相关 LSP client/protocol/watcher 代码；`tools/base` 不直接 import LSP；diagnostics 工具从 SDK 默认工具中删除。
@@ -97,7 +97,7 @@
 | `tools/core` | 定义 Tool 协议、FileEvent、HookResult、FileHook、hook 注册与调度边界 | 工具执行上下文、文件事件、hook 列表 | ToolResponse、hook 增强结果 | RQ-001, RQ-009, RQ-015 |
 | `tools/base` | 提供无 LSP 直接依赖的基础工具；负责基础文件操作和 diff metadata | ToolCall、permission、history、diff core | ToolResponse、FileEvent | RQ-004, RQ-005, RQ-006 |
 | `tools/mcp` | 适配 MCP server 工具为 SDK Tool | MCP 配置、权限服务、远端 schema | BaseTool 列表、MCP 调用响应 | RQ-001, RQ-003 |
-| `infra/diff` 或后续同等 core 包 | 提供纯 diff/patch 能力 | before/after content、patch text、file path | unified diff、additions/removals、patch commit | RQ-006, RQ-007, RQ-008 |
+| `utils/diff` | 提供纯 diff/patch 能力 | before/after content、patch text、file path | unified diff、additions/removals、patch commit | RQ-006, RQ-007, RQ-008 |
 | `data/db` | 新数据源连接、migration、transaction | config data directory、migration | datasource handle、transaction context | RQ-010 |
 | `data/repo` | SessionRepo、MessageRepo、HistoryRepo 抽象和实现 | domain entity、query params、transaction | 持久化实体、列表、更新结果 | RQ-010 |
 | `session/message/history` | 通过 repo 完成业务实体服务 | repo、pubsub、业务参数 | Session/Message/File 业务结果 | RQ-010 |
@@ -168,7 +168,7 @@
 - `go test ./...` 通过。
 - `rg -n "infra/format|infra/theme|extensions/" . -g "*.go"` 不应存在有效代码引用。
 - 仓库目标结构不应包含 `extensions` 目录。
-- `rg -n "lipgloss|infra/theme" infra/diff` 不应存在。
+- `rg -n "lipgloss|infra/theme" utils/diff` 不应存在。
 - `edit/write/patch` 的 diff metadata、权限审批 diff 和 history 记录行为需要有测试或人工验证记录。
 - `view/edit/write/patch` 的 FileEvent 发布和 hook 合并行为需要测试覆盖。
 - 数据层替换完成后，旧 sqlc/goose 依赖应不再处于 service 运行链路；如删除旧代码，需同步 `go.mod`。

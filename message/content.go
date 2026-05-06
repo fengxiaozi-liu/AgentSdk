@@ -35,6 +35,13 @@ type ContentPart interface {
 	isPart()
 }
 
+type Attachment struct {
+	FilePath string
+	FileName string
+	MimeType string
+	Content  []byte
+}
+
 type ReasoningContent struct {
 	Thinking string `json:"thinking"`
 }

@@ -9,18 +9,18 @@ This repository is a reusable Go Agent SDK. It keeps agent orchestration, provid
 | Area | Package | Responsibility |
 | --- | --- | --- |
 | Agent runtime | `agent` | Runs conversations, streams provider events, executes tools, records usage, and publishes agent events. |
-| Configuration | `config` | Loads SDK config, providers, agents, MCP servers, shell settings, context files, and prompt config path. |
+| Configuration | `config` | Defines SDK config structs, defaults, validation, and an explicit `Use` injection entry for host-provided config. |
 | Providers | `llm/provider` | Adapts OpenAI-compatible, Anthropic, Gemini, Bedrock, Azure, Copilot, VertexAI, OpenRouter, GROQ, XAI, local, and mock providers. |
-| Model metadata | `llm/models` | Provides provider constants and minimal model resolution. Agent config may use arbitrary model strings with an explicit provider. |
+| Model metadata | `llm/models` | Defines `Model`, provider/model IDs, and loads provider-scoped model examples from `models.json`. |
 | Prompt resolver | `prompt` | Loads JSON/YAML prompt config and resolves system prompts by key. Default prompts live in `prompt/prompts.json`. |
-| Data source | `data/db` | Owns the SDK data source handle used by repositories. |
+| Data source | `data/db` | Opens gorm-backed sqlite/mysql connections and owns database models/migration. |
 | Repositories | `data/repo` | Defines `SessionRepo`, `MessageRepo`, `HistoryRepo`, and repo error semantics. |
 | Services | `session`, `message`, `history` | Expose domain services over repo contracts and publish pubsub events. |
 | Tool protocol | `tools/core` | Defines `BaseTool`, tool calls/responses, file events, file hooks, and hook result merging. |
 | Base tools | `tools/base` | Provides SDK-safe tools such as file view/edit/write/patch, grep/glob/ls, bash, fetch, and sourcegraph. |
 | MCP tools | `tools/mcp` | Discovers and executes tools from configured MCP servers. |
 | Child agent tool | `tools/agent` | Runs a constrained task agent using session/message services. |
-| Diff core | `infra/diff` | Keeps unified diff generation, addition/removal stats, and patch parse/apply logic. No renderer or theme dependency. |
+| Diff core | `utils/diff` | Keeps unified diff generation, addition/removal stats, and patch parse/apply logic. No renderer or theme dependency. |
 | Utilities | `utils/fileutil`, `logging` | Shared file matching helpers and logging support. |
 
 ## Removed From SDK
@@ -44,12 +44,12 @@ graph TD
     Sessions --> Repos[data/repo]
     Messages --> Repos
     History[history.Service] --> Repos
-    Repos --> Data[data/db Source]
+    Repos --> Data[data/db gorm]
     Tools --> Base[tools/base]
     Tools --> MCP[tools/mcp]
     Tools --> Child[tools/agent]
     Base --> Hooks[tools/core FileHook]
-    Base --> Diff[infra/diff]
+    Base --> Diff[utils/diff]
 ```
 
 The SDK caller constructs services and tools, then calls `agent.Service.Run`. The agent stores user and assistant messages through service interfaces, streams provider events, executes matching tools, writes tool results back into message history, and continues until the provider returns a final response.

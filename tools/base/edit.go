@@ -3,7 +3,6 @@ package base
 import (
 	"context"
 	"encoding/json"
-	"ferryman-agent/infra/diff"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,8 +13,9 @@ import (
 	"ferryman-agent/history"
 	"ferryman-agent/logging"
 	"ferryman-agent/permission"
-	"ferryman-agent/tools/base/internal/support"
 	toolcore "ferryman-agent/tools/core"
+	"ferryman-agent/utils/diff"
+	"ferryman-agent/utils/fileutil"
 )
 
 type EditParams struct {
@@ -229,8 +229,8 @@ func (e *editTool) createNewFile(ctx context.Context, toolCallID, filePath, cont
 		logging.Debug("Error creating file history version", "error", err)
 	}
 
-	support.RecordFileWrite(filePath)
-	support.RecordFileRead(filePath)
+	fileutil.RecordFileWrite(filePath)
+	fileutil.RecordFileRead(filePath)
 
 	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse("File created: "+filePath),
@@ -269,12 +269,12 @@ func (e *editTool) deleteContent(ctx context.Context, toolCallID, filePath, oldS
 		return toolcore.NewTextErrorResponse(fmt.Sprintf("path is a directory, not a file: %s", filePath)), nil
 	}
 
-	if support.GetLastReadTime(filePath).IsZero() {
+	if fileutil.GetLastReadTime(filePath).IsZero() {
 		return toolcore.NewTextErrorResponse("you must read the file before editing it. Use the View tool first"), nil
 	}
 
 	modTime := fileInfo.ModTime()
-	lastRead := support.GetLastReadTime(filePath)
+	lastRead := fileutil.GetLastReadTime(filePath)
 	if modTime.After(lastRead) {
 		return toolcore.NewTextErrorResponse(
 			fmt.Sprintf("file %s has been modified since it was last read (mod time: %s, last read: %s)",
@@ -362,8 +362,8 @@ func (e *editTool) deleteContent(ctx context.Context, toolCallID, filePath, oldS
 		logging.Debug("Error creating file history version", "error", err)
 	}
 
-	support.RecordFileWrite(filePath)
-	support.RecordFileRead(filePath)
+	fileutil.RecordFileWrite(filePath)
+	fileutil.RecordFileRead(filePath)
 
 	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse("Content deleted from file: "+filePath),
@@ -403,12 +403,12 @@ func (e *editTool) replaceContent(ctx context.Context, toolCallID, filePath, old
 		return toolcore.NewTextErrorResponse(fmt.Sprintf("path is a directory, not a file: %s", filePath)), nil
 	}
 
-	if support.GetLastReadTime(filePath).IsZero() {
+	if fileutil.GetLastReadTime(filePath).IsZero() {
 		return toolcore.NewTextErrorResponse("you must read the file before editing it. Use the View tool first"), nil
 	}
 
 	modTime := fileInfo.ModTime()
-	lastRead := support.GetLastReadTime(filePath)
+	lastRead := fileutil.GetLastReadTime(filePath)
 	if modTime.After(lastRead) {
 		return toolcore.NewTextErrorResponse(
 			fmt.Sprintf("file %s has been modified since it was last read (mod time: %s, last read: %s)",
@@ -497,8 +497,8 @@ func (e *editTool) replaceContent(ctx context.Context, toolCallID, filePath, old
 		logging.Debug("Error creating file history version", "error", err)
 	}
 
-	support.RecordFileWrite(filePath)
-	support.RecordFileRead(filePath)
+	fileutil.RecordFileWrite(filePath)
+	fileutil.RecordFileRead(filePath)
 
 	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse("Content replaced in file: "+filePath),

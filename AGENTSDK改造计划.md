@@ -202,7 +202,7 @@ session/message/history service
 
 tools/base
   -> utils/fileutil
-  -> infra/diff
+  -> utils/diff
   -> permission
   -> history
   -> tools/core hooks

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	internalconfig "ferryman-agent/config"
 	sdkconfig "ferryman-agent/config"
 	"ferryman-agent/llm/models"
 	"ferryman-agent/llm/provider"
@@ -53,7 +52,7 @@ type Service interface {
 	Cancel(sessionID string)
 	IsSessionBusy(sessionID string) bool
 	IsBusy() bool
-	Update(agentName sdkconfig.AgentName, modelID models.ModelID) (models.Model, error)
+	Update(profileKey string, modelID models.ModelID) (models.Model, error)
 	Summarize(ctx context.Context, sessionID string) error
 }
 
@@ -72,26 +71,25 @@ type agent struct {
 }
 
 func NewAgent(
-	agentName sdkconfig.AgentName,
+	profileKey string,
 	sessions session.Service,
 	messages message.Service,
 	agentTools []toolcore.BaseTool,
 ) (Service, error) {
-	agentProvider, err := createAgentProvider(agentName)
+	agentProvider, err := createAgentProvider(profileKey)
 	if err != nil {
 		return nil, err
 	}
 	var titleProvider provider.Provider
-	// Only generate titles for the coder agent
-	if agentName == sdkconfig.AgentCoder {
-		titleProvider, err = createAgentProvider(sdkconfig.AgentTitle)
+	if _, ok := sdkconfig.ModelProfile("title"); ok {
+		titleProvider, err = createAgentProvider("title")
 		if err != nil {
 			return nil, err
 		}
 	}
 	var summarizeProvider provider.Provider
-	if agentName == sdkconfig.AgentCoder {
-		summarizeProvider, err = createAgentProvider(sdkconfig.AgentSummarizer)
+	if _, ok := sdkconfig.ModelProfile("summarizer"); ok {
+		summarizeProvider, err = createAgentProvider("summarizer")
 		if err != nil {
 			return nil, err
 		}
@@ -515,16 +513,23 @@ func (a *agent) TrackUsage(ctx context.Context, sessionID string, model models.M
 	return nil
 }
 
-func (a *agent) Update(agentName sdkconfig.AgentName, modelID models.ModelID) (models.Model, error) {
+func (a *agent) Update(profileKey string, modelID models.ModelID) (models.Model, error) {
 	if a.IsBusy() {
 		return models.Model{}, fmt.Errorf("cannot change model while processing requests")
 	}
 
-	if err := sdkconfig.UpdateAgentModel(agentName, modelID); err != nil {
-		return models.Model{}, fmt.Errorf("failed to update config: %w", err)
+	cfg := sdkconfig.Get()
+	profile, ok := sdkconfig.ModelProfile(profileKey)
+	if !ok {
+		return models.Model{}, fmt.Errorf("model profile %s not found", profileKey)
 	}
-
-	provider, err := createAgentProvider(agentName)
+	profile.Model = modelID
+	if profileKey == "" {
+		cfg.Model = profile
+	} else {
+		cfg.ModelProfiles[profileKey] = profile
+	}
+	provider, err := createAgentProvider(profileKey)
 	if err != nil {
 		return models.Model{}, fmt.Errorf("failed to create provider for model %s: %w", modelID, err)
 	}
@@ -705,49 +710,51 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func createAgentProvider(agentName sdkconfig.AgentName) (provider.Provider, error) {
+func createAgentProvider(profileKey string) (provider.Provider, error) {
 	cfg := sdkconfig.Current()
-	agentConfig, ok := cfg.Agents[agentName]
+	agentConfig, ok := sdkconfig.ModelProfile(profileKey)
 	if !ok {
-		return nil, fmt.Errorf("agent %s not found", agentName)
+		return nil, fmt.Errorf("model profile %s not found", profileKey)
 	}
-	// 查看支持模型，这里要更新一下， 所有模型都支持
 	providerName := agentConfig.Provider
-	if providerName == "" {
-		providerName = models.ProviderForModel(agentConfig.Model)
-	}
 	if providerName == "" {
 		return nil, fmt.Errorf("provider is required for model %s", agentConfig.Model)
 	}
 	model := models.ResolveModel(providerName, agentConfig.Model)
 
-	providerCfg, ok := cfg.Providers[model.Provider]
+	providerCfg, ok := cfg.Providers[providerName]
 	if !ok {
-		return nil, fmt.Errorf("provider %s not supported", model.Provider)
+		return nil, fmt.Errorf("provider %s not supported", providerName)
 	}
 	if providerCfg.Disabled {
-		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
+		return nil, fmt.Errorf("provider %s is not enabled", providerName)
 	}
-	// 模型是否有最大支持token，如果没有则使用agent的token
 	maxTokens := model.DefaultMaxTokens
 	if agentConfig.MaxTokens > 0 {
 		maxTokens = agentConfig.MaxTokens
 	}
+	promptKey := agentConfig.PromptKey
+	if promptKey == "" {
+		promptKey = profileKey
+	}
+	systemPrompt, err := prompt.ResolveSystemPromptByKey(promptKey)
+	if err != nil {
+		systemPrompt = "You are a helpful assistant."
+	}
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithModel(model),
-		// 这个prompt的系统提示词可以优化放到一个文件中，然后再映射到对应的文件
-		provider.WithSystemMessage(prompt.GetAgentPrompt(internalconfig.AgentName(agentName), model.Provider)),
+		provider.WithSystemMessage(systemPrompt),
 		provider.WithMaxTokens(maxTokens),
 	}
-	if model.Provider == models.ProviderOpenAI || model.Provider == models.ProviderLocal && model.CanReason {
+	if (providerName == models.ProviderOpenAI || providerName == models.ProviderLocal) && model.CanReason {
 		opts = append(
 			opts,
 			provider.WithOpenAIOptions(
 				provider.WithReasoningEffort(agentConfig.ReasoningEffort),
 			),
 		)
-	} else if model.Provider == models.ProviderAnthropic && model.CanReason && agentName == sdkconfig.AgentCoder {
+	} else if providerName == models.ProviderAnthropic && model.CanReason {
 		opts = append(
 			opts,
 			provider.WithAnthropicOptions(
@@ -756,7 +763,7 @@ func createAgentProvider(agentName sdkconfig.AgentName) (provider.Provider, erro
 		)
 	}
 	agentProvider, err := provider.NewProvider(
-		model.Provider,
+		providerName,
 		opts...,
 	)
 	if err != nil {

@@ -11,8 +11,6 @@ import (
 	"sync"
 
 	"ferryman-agent/config"
-	"ferryman-agent/llm/models"
-	"ferryman-agent/logging"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,29 +38,10 @@ func ResolveSystemPromptByKey(key string) (string, error) {
 	return prompt, nil
 }
 
-func GetAgentPrompt(agentName config.AgentName, _ models.ModelProvider) string {
-	basePrompt, err := ResolveSystemPromptByKey(string(agentName))
-	if err != nil {
-		basePrompt = "You are a helpful assistant."
-	}
-
-	if agentName == config.AgentCoder || agentName == config.AgentTask {
-		contextContent := getContextFromPaths()
-		logging.Debug("Context content", "Context", contextContent)
-		if contextContent != "" {
-			return fmt.Sprintf("%s\n\n# Project-Specific Context\n Make sure to follow the instructions in the context below\n%s", basePrompt, contextContent)
-		}
-	}
-	return basePrompt
-}
-
 var (
 	oncePrompts sync.Once
 	prompts     map[string]string
 	promptsErr  error
-
-	onceContext    sync.Once
-	contextContent string
 )
 
 func loadPrompts() (map[string]string, error) {
@@ -104,69 +83,4 @@ func parsePromptConfig(path string, content []byte) (map[string]string, error) {
 		return nil, fmt.Errorf("%w: prompts is empty", ErrPromptConfigInvalid)
 	}
 	return cfg.Prompts, nil
-}
-
-func getContextFromPaths() string {
-	onceContext.Do(func() {
-		var (
-			cfg          = config.Get()
-			workDir      = cfg.WorkingDir
-			contextPaths = cfg.ContextPaths
-		)
-
-		contextContent = processContextPaths(workDir, contextPaths)
-	})
-
-	return contextContent
-}
-
-func processContextPaths(workDir string, paths []string) string {
-	processedFiles := make(map[string]bool)
-	results := make([]string, 0)
-
-	for _, path := range paths {
-		if strings.HasSuffix(path, "/") {
-			_ = filepath.WalkDir(filepath.Join(workDir, path), func(currentPath string, d os.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if d.IsDir() {
-					return nil
-				}
-
-				lowerPath := strings.ToLower(currentPath)
-				if processedFiles[lowerPath] {
-					return nil
-				}
-				processedFiles[lowerPath] = true
-
-				if result := processFile(currentPath); result != "" {
-					results = append(results, result)
-				}
-				return nil
-			})
-			continue
-		}
-
-		fullPath := filepath.Join(workDir, path)
-		lowerPath := strings.ToLower(fullPath)
-		if processedFiles[lowerPath] {
-			continue
-		}
-		processedFiles[lowerPath] = true
-
-		if result := processFile(fullPath); result != "" {
-			results = append(results, result)
-		}
-	}
-
-	return strings.Join(results, "\n")
-}
-
-func processFile(filePath string) string {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return ""
-	}
-	return "# From:" + filepath.ToSlash(filePath) + "\n" + string(content)
 }

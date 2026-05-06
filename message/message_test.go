@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"ferryman-agent/config"
 	datadb "ferryman-agent/data/db"
 	"ferryman-agent/data/repo"
 	"ferryman-agent/llm/models"
@@ -11,12 +12,21 @@ import (
 
 func TestServiceUsesMessageRepoAndRoundTripsParts(t *testing.T) {
 	ctx := context.Background()
-	repos := repo.NewRepositories(datadb.NewSource())
-	_, err := repos.Sessions.Create(ctx, repo.CreateSessionParams{ID: "s1", Title: "work"})
+	database, err := datadb.Open(config.DatabaseConfig{
+		Type:        config.DatabaseSQLite,
+		Path:        ":memory:",
+		AutoMigrate: true,
+	})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sessions := repo.NewSessionRepo(database)
+	messages := repo.NewMessageRepo(database)
+	_, err = sessions.Create(ctx, repo.CreateSessionParams{ID: "s1", Title: "work"})
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
-	service := NewService(repos.Messages)
+	service := NewService(messages)
 
 	msg, err := service.Create(ctx, "s1", CreateMessageParams{
 		Role:  User,
@@ -40,7 +50,7 @@ func TestServiceUsesMessageRepoAndRoundTripsParts(t *testing.T) {
 	if len(listed) != 1 || listed[0].FinishReason() != FinishReasonEndTurn {
 		t.Fatalf("unexpected listed messages: %+v", listed)
 	}
-	session, err := repos.Sessions.Get(ctx, "s1")
+	session, err := sessions.Get(ctx, "s1")
 	if err != nil {
 		t.Fatalf("get session: %v", err)
 	}

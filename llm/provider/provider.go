@@ -42,28 +42,25 @@ type ProviderResponse struct {
 }
 
 type ProviderEvent struct {
-	Type EventType
-
+	Type     EventType
 	Content  string
 	Thinking string
 	Response *ProviderResponse
 	ToolCall *message.ToolCall
 	Error    error
 }
+
 type Provider interface {
 	SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*ProviderResponse, error)
-
 	StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent
-
 	Model() models.Model
 }
 
 type providerClientOptions struct {
-	apiKey        string
-	model         models.Model
-	maxTokens     int64
-	systemMessage string
-
+	apiKey           string
+	model            models.Model
+	maxTokens        int64
+	systemMessage    string
 	anthropicOptions []AnthropicOption
 	openaiOptions    []OpenAIOption
 	geminiOptions    []GeminiOption
@@ -136,8 +133,8 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 		clientOptions.openaiOptions = append(clientOptions.openaiOptions,
 			WithOpenAIBaseURL("https://openrouter.ai/api/v1"),
 			WithOpenAIExtraHeaders(map[string]string{
-				"HTTP-Referer": "opencode.ai",
-				"X-Title":      "OpenCode",
+				"HTTP-Referer": "ferryer.ai",
+				"X-Title":      "Ferryer",
 			}),
 		)
 		return &baseProvider[OpenAIClient]{

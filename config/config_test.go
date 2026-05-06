@@ -1,53 +1,43 @@
 package config
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
 	"ferryman-agent/llm/models"
-	"github.com/spf13/viper"
 )
 
 func resetConfigForTest() {
 	cfg = nil
-	viper.Reset()
 }
 
-func TestLoadAndRuntimeFor(t *testing.T) {
+func TestUseAndModelProfile(t *testing.T) {
 	resetConfigForTest()
 	workingDir := t.TempDir()
-	t.Setenv("HOME", workingDir)
-	t.Setenv("USERPROFILE", workingDir)
-	t.Setenv("XDG_CONFIG_HOME", workingDir)
-	t.Setenv("LOCALAPPDATA", workingDir)
 
-	configJSON := `{
-  "data": {"directory": "` + filepath.ToSlash(filepath.Join(workingDir, "data")) + `"},
-  "providers": {"openai": {"apiKey": "test-key"}},
-  "agents": {
-    "coder": {
-      "model": "o4-mini",
-      "maxTokens": 2048,
-      "reasoningEffort": "high"
-    }
-  }
-}`
-	if err := os.WriteFile(filepath.Join(workingDir, ".opencode.json"), []byte(configJSON), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cfg, err := Load(workingDir, false)
+	cfg, err := Use(Config{
+		WorkingDir: workingDir,
+		Data:       Data{Directory: filepath.Join(workingDir, "data")},
+		Providers:  map[models.ModelProvider]Provider{"openai": {APIKey: "test-key"}},
+		ModelProfiles: map[string]ModelConfig{
+			"coder": {
+				Provider:        "openai",
+				Model:           "o4-mini",
+				MaxTokens:       2048,
+				ReasoningEffort: "high",
+			},
+		},
+	})
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("Use: %v", err)
 	}
 	if cfg == nil {
 		t.Fatal("expected config to be loaded")
 	}
 
-	runtimeCfg, ok := RuntimeFor(AgentCoder)
+	runtimeCfg, ok := ModelProfile("coder")
 	if !ok {
-		t.Fatal("expected coder runtime config")
+		t.Fatal("expected coder model profile")
 	}
 	if runtimeCfg.Model != models.O4Mini {
 		t.Fatalf("expected model %q, got %q", models.O4Mini, runtimeCfg.Model)
@@ -63,34 +53,25 @@ func TestLoadAndRuntimeFor(t *testing.T) {
 	}
 }
 
-func TestLoadAllowsConfiguredProviderWithArbitraryModel(t *testing.T) {
+func TestUseAllowsConfiguredProviderWithArbitraryModel(t *testing.T) {
 	resetConfigForTest()
 	workingDir := t.TempDir()
-	t.Setenv("HOME", workingDir)
-	t.Setenv("USERPROFILE", workingDir)
-	t.Setenv("XDG_CONFIG_HOME", workingDir)
-	t.Setenv("LOCALAPPDATA", workingDir)
 
-	configJSON := `{
-  "data": {"directory": "` + filepath.ToSlash(filepath.Join(workingDir, "data")) + `"},
-  "providers": {"openai": {"apiKey": "test-key"}},
-  "agents": {
-    "coder": {
-      "model": "future-model",
-      "provider": "openai",
-      "maxTokens": 1024
-    }
-  }
-}`
-	if err := os.WriteFile(filepath.Join(workingDir, ".opencode.json"), []byte(configJSON), 0o644); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	cfg, err := Load(workingDir, false)
+	cfg, err := Use(Config{
+		WorkingDir: workingDir,
+		Providers:  map[models.ModelProvider]Provider{"openai": {APIKey: "test-key"}},
+		ModelProfiles: map[string]ModelConfig{
+			"coder": {
+				Provider:  "openai",
+				Model:     "future-model",
+				MaxTokens: 1024,
+			},
+		},
+	})
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("Use: %v", err)
 	}
-	agent := cfg.Agents[AgentCoder]
+	agent := cfg.ModelProfiles["coder"]
 	if agent.Model != "future-model" || agent.Provider != models.ProviderOpenAI {
 		t.Fatalf("expected arbitrary openai model to remain configured: %+v", agent)
 	}

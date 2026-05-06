@@ -6,7 +6,6 @@ import (
 	agent "ferryman-agent"
 	"fmt"
 
-	sdkconfig "ferryman-agent/config"
 	"ferryman-agent/message"
 	"ferryman-agent/session"
 	basetools "ferryman-agent/tools/base"
@@ -55,7 +54,7 @@ func (b *Tool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.ToolRe
 	}
 
 	runner, err := agent.NewAgent(
-		sdkconfig.AgentTask,
+		"task",
 		b.sessions,
 		b.messages,
 		[]toolcore.BaseTool{

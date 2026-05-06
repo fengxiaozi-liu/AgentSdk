@@ -1,4 +1,4 @@
-package support
+package shell
 
 import (
 	"context"
@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"ferryman-agent/config"
 )
 
 type PersistentShell struct {
@@ -58,15 +56,8 @@ func GetPersistentShell(workingDir string) *PersistentShell {
 }
 
 func newPersistentShell(cwd string) *PersistentShell {
-	cfg := config.Get()
-
 	var shellPath string
 	var shellArgs []string
-
-	if cfg != nil {
-		shellPath = cfg.Shell.Path
-		shellArgs = cfg.Shell.Args
-	}
 
 	if shellPath == "" {
 		shellPath = os.Getenv("SHELL")
@@ -142,10 +133,10 @@ func (s *PersistentShell) execCommand(command string, timeout time.Duration, ctx
 	}
 
 	tempDir := os.TempDir()
-	stdoutFile := filepath.Join(tempDir, fmt.Sprintf("opencode-stdout-%d", time.Now().UnixNano()))
-	stderrFile := filepath.Join(tempDir, fmt.Sprintf("opencode-stderr-%d", time.Now().UnixNano()))
-	statusFile := filepath.Join(tempDir, fmt.Sprintf("opencode-status-%d", time.Now().UnixNano()))
-	cwdFile := filepath.Join(tempDir, fmt.Sprintf("opencode-cwd-%d", time.Now().UnixNano()))
+	stdoutFile := filepath.Join(tempDir, fmt.Sprintf("ferryer-stdout-%d", time.Now().UnixNano()))
+	stderrFile := filepath.Join(tempDir, fmt.Sprintf("ferryer-stderr-%d", time.Now().UnixNano()))
+	statusFile := filepath.Join(tempDir, fmt.Sprintf("ferryer-status-%d", time.Now().UnixNano()))
+	cwdFile := filepath.Join(tempDir, fmt.Sprintf("ferryer-cwd-%d", time.Now().UnixNano()))
 
 	defer func() {
 		os.Remove(stdoutFile)

@@ -11,11 +11,11 @@ import (
 
 	"ferryman-agent/config"
 	"ferryman-agent/history"
-	"ferryman-agent/infra/diff"
 	"ferryman-agent/logging"
 	"ferryman-agent/permission"
-	"ferryman-agent/tools/base/internal/support"
 	toolcore "ferryman-agent/tools/core"
+	"ferryman-agent/utils/diff"
+	"ferryman-agent/utils/fileutil"
 )
 
 type WriteParams struct {
@@ -124,7 +124,7 @@ func (w *writeTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		}
 
 		modTime := fileInfo.ModTime()
-		lastRead := support.GetLastReadTime(filePath)
+		lastRead := fileutil.GetLastReadTime(filePath)
 		if modTime.After(lastRead) {
 			return toolcore.NewTextErrorResponse(fmt.Sprintf("File %s has been modified since it was last read.\nLast modification: %s\nLast read: %s\n\nPlease read the file again before modifying it.",
 				filePath, modTime.Format(time.RFC3339), lastRead.Format(time.RFC3339))), nil
@@ -211,8 +211,8 @@ func (w *writeTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		logging.Debug("Error creating file history version", "error", err)
 	}
 
-	support.RecordFileWrite(filePath)
-	support.RecordFileRead(filePath)
+	fileutil.RecordFileWrite(filePath)
+	fileutil.RecordFileRead(filePath)
 
 	result := fmt.Sprintf("File successfully written: %s", filePath)
 	result = fmt.Sprintf("<result>\n%s\n</result>", result)

@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"ferryman-agent/config"
@@ -43,6 +46,47 @@ type CopilotTokenResponse struct {
 	ExpiresAt int64  `json:"expires_at"`
 }
 
+func loadGitHubToken() (string, error) {
+	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
+		return token, nil
+	}
+
+	var configDir string
+	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
+		configDir = xdgConfig
+	} else if runtime.GOOS == "windows" {
+		if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+			configDir = localAppData
+		} else {
+			configDir = filepath.Join(os.Getenv("HOME"), "AppData", "Local")
+		}
+	} else {
+		configDir = filepath.Join(os.Getenv("HOME"), ".config")
+	}
+
+	for _, filePath := range []string{
+		filepath.Join(configDir, "github-copilot", "hosts.json"),
+		filepath.Join(configDir, "github-copilot", "apps.json"),
+	} {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		var config map[string]map[string]interface{}
+		if err := json.Unmarshal(data, &config); err != nil {
+			continue
+		}
+		for key, value := range config {
+			if strings.Contains(key, "github.com") {
+				if oauthToken, ok := value["oauth_token"].(string); ok {
+					return oauthToken, nil
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("GitHub token not found in standard locations")
+}
+
 func (c *copilotClient) isAnthropicModel() bool {
 	for _, modelId := range models.CopilotAnthropicModels {
 		if c.providerOptions.model.ID == modelId {
@@ -62,7 +106,7 @@ func (c *copilotClient) exchangeGitHubToken(githubToken string) (string, error) 
 	}
 
 	req.Header.Set("Authorization", "Token "+githubToken)
-	req.Header.Set("User-Agent", "OpenCode/1.0")
+	req.Header.Set("User-Agent", "Ferryer/1.0")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -117,14 +161,14 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 		// 3. Standard GitHub CLI/Copilot locations
 		if githubToken == "" {
 			var err error
-			githubToken, err = config.LoadGitHubToken()
+			githubToken, err = loadGitHubToken()
 			if err != nil {
 				logging.Debug("Failed to load GitHub token from standard locations", "error", err)
 			}
 		}
 
 		if githubToken == "" {
-			logging.Error("GitHub token is required for Copilot provider. Set GITHUB_TOKEN environment variable, configure it in opencode.json, or ensure GitHub CLI/Copilot is properly authenticated.")
+			logging.Error("GitHub token is required for Copilot provider. Set GITHUB_TOKEN environment variable, configure it in ferryer config, or ensure GitHub CLI/Copilot is properly authenticated.")
 			return &copilotClient{
 				providerOptions: opts,
 				options:         copilotOpts,
@@ -164,8 +208,8 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 
 	// Add GitHub Copilot specific headers
 	openaiClientOptions = append(openaiClientOptions,
-		option.WithHeader("Editor-Version", "OpenCode/1.0"),
-		option.WithHeader("Editor-Plugin-Version", "OpenCode/1.0"),
+		option.WithHeader("Editor-Version", "Ferryer/1.0"),
+		option.WithHeader("Editor-Plugin-Version", "Ferryer/1.0"),
 		option.WithHeader("Copilot-Integration-Id", "vscode-chat"),
 	)
 
@@ -565,7 +609,7 @@ func (c *copilotClient) shouldRetry(attempts int, err error) (bool, int64, error
 		// 3. Standard GitHub CLI/Copilot locations
 		if githubToken == "" {
 			var err error
-			githubToken, err = config.LoadGitHubToken()
+			githubToken, err = loadGitHubToken()
 			if err != nil {
 				logging.Debug("Failed to load GitHub token from standard locations during retry", "error", err)
 			}

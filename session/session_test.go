@@ -4,14 +4,22 @@ import (
 	"context"
 	"testing"
 
+	"ferryman-agent/config"
 	datadb "ferryman-agent/data/db"
 	"ferryman-agent/data/repo"
 )
 
 func TestServiceUsesSessionRepo(t *testing.T) {
 	ctx := context.Background()
-	repos := repo.NewRepositories(datadb.NewSource())
-	service := NewService(repos.Sessions)
+	database, err := datadb.Open(config.DatabaseConfig{
+		Type:        config.DatabaseSQLite,
+		Path:        ":memory:",
+		AutoMigrate: true,
+	})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	service := NewService(repo.NewSessionRepo(database))
 
 	session, err := service.Create(ctx, "work")
 	if err != nil {
