@@ -14,13 +14,13 @@ import (
 const InitialVersion = "initial"
 
 type File struct {
-	ID        string
-	SessionID string
-	Path      string
-	Content   string
-	Version   string
-	CreatedAt int64
-	UpdatedAt int64
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	Version   string `json:"version"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
 }
 
 type Service interface {
@@ -167,6 +167,14 @@ func (s *service) DeleteSessionFiles(ctx context.Context, sessionID string) erro
 	return nil
 }
 
-func (s *service) fromRepoItem(item repo.File) File {
-	return File(item)
+func (s *service) fromRepoItem(item repo.HistoryRecord) File {
+	return File{
+		ID:        item.ID,
+		SessionID: item.SessionID,
+		Path:      item.Path,
+		Content:   item.Content,
+		Version:   item.Version,
+		CreatedAt: item.CreatedAt,
+		UpdatedAt: item.UpdatedAt,
+	}
 }

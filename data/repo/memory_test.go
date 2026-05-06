@@ -4,23 +4,24 @@ import (
 	"context"
 	"testing"
 
-	"ferryman-agent/config"
 	datadb "ferryman-agent/data/db"
 )
 
 func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 	ctx := context.Background()
-	database, err := datadb.Open(config.DatabaseConfig{
-		Type:        config.DatabaseSQLite,
-		Path:        ":memory:",
-		AutoMigrate: true,
+	client, err := datadb.Open(datadb.DatabaseConfig{
+		Type: datadb.DatabaseSQLite,
+		Path: ":memory:",
 	})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	sessions := NewSessionRepo(database)
-	messages := NewMessageRepo(database)
-	history := NewHistoryRepo(database)
+	if err := client.AutoMigrate(&SessionRecord{}, &MessageRecord{}, &HistoryRecord{}); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+	sessions := NewSessionRepo(client)
+	messages := NewMessageRepo(client)
+	history := NewHistoryRepo(client)
 
 	session, err := sessions.Create(ctx, CreateSessionParams{ID: "s1", Title: "root"})
 	if err != nil {

@@ -36,10 +36,10 @@ type ContentPart interface {
 }
 
 type Attachment struct {
-	FilePath string
-	FileName string
-	MimeType string
-	Content  []byte
+	FilePath string `json:"filePath"`
+	FileName string `json:"fileName"`
+	MimeType string `json:"mimeType"`
+	Content  []byte `json:"content"`
 }
 
 type ReasoningContent struct {
@@ -73,9 +73,9 @@ func (iuc ImageURLContent) String() string {
 func (ImageURLContent) isPart() {}
 
 type BinaryContent struct {
-	Path     string
-	MIMEType string
-	Data     []byte
+	Path     string `json:"path,omitempty"`
+	MIMEType string `json:"mimeType"`
+	Data     []byte `json:"data"`
 }
 
 func (bc BinaryContent) String(provider models.ModelProvider) string {
@@ -116,13 +116,13 @@ type Finish struct {
 func (Finish) isPart() {}
 
 type Message struct {
-	ID        string
-	Role      MessageRole
-	SessionID string
-	Parts     []ContentPart
-	Model     models.ModelID
-	CreatedAt int64
-	UpdatedAt int64
+	ID        string         `json:"id"`
+	Role      MessageRole    `json:"role"`
+	SessionID string         `json:"sessionId"`
+	Parts     []ContentPart  `json:"parts"`
+	Model     models.ModelID `json:"model"`
+	CreatedAt int64          `json:"createdAt"`
+	UpdatedAt int64          `json:"updatedAt"`
 }
 
 func (m *Message) Content() TextContent {

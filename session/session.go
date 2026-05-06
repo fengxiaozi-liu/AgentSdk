@@ -9,16 +9,16 @@ import (
 )
 
 type Session struct {
-	ID               string
-	ParentSessionID  string
-	Title            string
-	MessageCount     int64
-	PromptTokens     int64
-	CompletionTokens int64
-	SummaryMessageID string
-	Cost             float64
-	CreatedAt        int64
-	UpdatedAt        int64
+	ID               string  `json:"id"`
+	ParentSessionID  string  `json:"parentSessionId,omitempty"`
+	Title            string  `json:"title"`
+	MessageCount     int64   `json:"messageCount"`
+	PromptTokens     int64   `json:"promptTokens"`
+	CompletionTokens int64   `json:"completionTokens"`
+	SummaryMessageID string  `json:"summaryMessageId,omitempty"`
+	Cost             float64 `json:"cost"`
+	CreatedAt        int64   `json:"createdAt"`
+	UpdatedAt        int64   `json:"updatedAt"`
 }
 
 type Service interface {
@@ -130,7 +130,7 @@ func (s *service) List(ctx context.Context) ([]Session, error) {
 	return sessions, nil
 }
 
-func (s service) fromDBItem(item repo.Session) Session {
+func (s service) fromDBItem(item repo.SessionRecord) Session {
 	return Session{
 		ID:               item.ID,
 		ParentSessionID:  item.ParentSessionID,

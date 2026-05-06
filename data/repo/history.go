@@ -8,107 +8,147 @@ import (
 	"gorm.io/gorm"
 )
 
+type HistoryRecord struct {
+	ID        string `gorm:"column:id;primaryKey"`
+	SessionID string `gorm:"column:session_id;index"`
+	Path      string `gorm:"column:path;index"`
+	Content   string `gorm:"column:content"`
+	Version   string `gorm:"column:version"`
+	CreatedAt int64  `gorm:"column:created_at;autoCreateTime:milli"`
+	UpdatedAt int64  `gorm:"column:updated_at;autoUpdateTime:milli"`
+}
+
+func (HistoryRecord) TableName() string {
+	return "history"
+}
+
+type CreateFileParams struct {
+	ID        string
+	SessionID string
+	Path      string
+	Content   string
+	Version   string
+}
+
+type UpdateFileParams struct {
+	ID      string
+	Content string
+	Version string
+}
+
+type HistoryRepo interface {
+	Create(context.Context, CreateFileParams) (HistoryRecord, error)
+	Get(context.Context, string) (HistoryRecord, error)
+	GetLatestByPathAndSession(context.Context, string, string) (HistoryRecord, error)
+	ListByPath(context.Context, string) ([]HistoryRecord, error)
+	ListBySession(context.Context, string) ([]HistoryRecord, error)
+	ListLatestBySession(context.Context, string) ([]HistoryRecord, error)
+	Update(context.Context, UpdateFileParams) (HistoryRecord, error)
+	Delete(context.Context, string) error
+	DeleteBySession(context.Context, string) error
+}
+
 type historyRepo struct {
-	db *gorm.DB
+	client *datadb.DbClient
 }
 
-func NewHistoryRepo(db *gorm.DB) HistoryRepo {
-	return &historyRepo{db: db}
+func NewHistoryRepo(client *datadb.DbClient) HistoryRepo {
+	return &historyRepo{client: client}
 }
 
-func (r *historyRepo) Create(ctx context.Context, params CreateFileParams) (File, error) {
-	item := datadb.File{
+func (r *historyRepo) Create(ctx context.Context, params CreateFileParams) (HistoryRecord, error) {
+	item := HistoryRecord{
 		ID:        params.ID,
 		SessionID: params.SessionID,
 		Path:      params.Path,
 		Content:   params.Content,
 		Version:   params.Version,
 	}
-	if err := r.db.WithContext(ctx).Create(&item).Error; err != nil {
-		return File{}, err
+	if err := r.client.DB.WithContext(ctx).Create(&item).Error; err != nil {
+		return HistoryRecord{}, err
 	}
-	return fromDBFile(item), nil
+	return item, nil
 }
 
-func (r *historyRepo) Get(ctx context.Context, id string) (File, error) {
-	var item datadb.File
-	if err := r.db.WithContext(ctx).First(&item, "id = ?", id).Error; err != nil {
+func (r *historyRepo) Get(ctx context.Context, id string) (HistoryRecord, error) {
+	var item HistoryRecord
+	if err := r.client.DB.WithContext(ctx).First(&item, "id = ?", id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return File{}, ErrRepoNotFound
+			return HistoryRecord{}, ErrRepoNotFound
 		}
-		return File{}, err
+		return HistoryRecord{}, err
 	}
-	return fromDBFile(item), nil
+	return item, nil
 }
 
-func (r *historyRepo) GetLatestByPathAndSession(ctx context.Context, path, sessionID string) (File, error) {
-	var item datadb.File
-	if err := r.db.WithContext(ctx).
+func (r *historyRepo) GetLatestByPathAndSession(ctx context.Context, path, sessionID string) (HistoryRecord, error) {
+	var item HistoryRecord
+	if err := r.client.DB.WithContext(ctx).
 		Where("path = ? AND session_id = ?", path, sessionID).
 		Order("created_at desc, id desc").
 		First(&item).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return File{}, ErrRepoNotFound
+			return HistoryRecord{}, ErrRepoNotFound
 		}
-		return File{}, err
+		return HistoryRecord{}, err
 	}
-	return fromDBFile(item), nil
+	return item, nil
 }
 
-func (r *historyRepo) ListByPath(ctx context.Context, path string) ([]File, error) {
-	var rows []datadb.File
-	if err := r.db.WithContext(ctx).Where("path = ?", path).Order("created_at desc, id desc").Find(&rows).Error; err != nil {
+func (r *historyRepo) ListByPath(ctx context.Context, path string) ([]HistoryRecord, error) {
+	var rows []HistoryRecord
+	if err := r.client.DB.WithContext(ctx).Where("path = ?", path).Order("created_at desc, id desc").Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	return fromDBFiles(rows), nil
+	return rows, nil
 }
 
-func (r *historyRepo) ListBySession(ctx context.Context, sessionID string) ([]File, error) {
-	var rows []datadb.File
-	if err := r.db.WithContext(ctx).Where("session_id = ?", sessionID).Order("created_at asc").Find(&rows).Error; err != nil {
+func (r *historyRepo) ListBySession(ctx context.Context, sessionID string) ([]HistoryRecord, error) {
+	var rows []HistoryRecord
+	if err := r.client.DB.WithContext(ctx).Where("session_id = ?", sessionID).Order("created_at asc").Find(&rows).Error; err != nil {
 		return nil, err
 	}
-	return fromDBFiles(rows), nil
+	return rows, nil
 }
 
-func (r *historyRepo) ListLatestBySession(ctx context.Context, sessionID string) ([]File, error) {
-	var rows []datadb.File
-	if err := r.db.WithContext(ctx).
+func (r *historyRepo) ListLatestBySession(ctx context.Context, sessionID string) ([]HistoryRecord, error) {
+	var rows []HistoryRecord
+	if err := r.client.DB.WithContext(ctx).
 		Where("session_id = ?", sessionID).
 		Order("path asc, created_at desc, id desc").
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	seen := make(map[string]bool)
-	items := make([]File, 0)
+	items := make([]HistoryRecord, 0)
 	for _, row := range rows {
 		if seen[row.Path] {
 			continue
 		}
 		seen[row.Path] = true
-		items = append(items, fromDBFile(row))
+		items = append(items, row)
 	}
 	return items, nil
 }
 
-func (r *historyRepo) Update(ctx context.Context, params UpdateFileParams) (File, error) {
-	var item datadb.File
-	if err := r.db.WithContext(ctx).First(&item, "id = ?", params.ID).Error; err != nil {
+func (r *historyRepo) Update(ctx context.Context, params UpdateFileParams) (HistoryRecord, error) {
+	var item HistoryRecord
+	if err := r.client.DB.WithContext(ctx).First(&item, "id = ?", params.ID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return File{}, ErrRepoNotFound
+			return HistoryRecord{}, ErrRepoNotFound
 		}
-		return File{}, err
+		return HistoryRecord{}, err
 	}
 	item.Content = params.Content
 	item.Version = params.Version
-	if err := r.db.WithContext(ctx).Save(&item).Error; err != nil {
-		return File{}, err
+	if err := r.client.DB.WithContext(ctx).Save(&item).Error; err != nil {
+		return HistoryRecord{}, err
 	}
-	return fromDBFile(item), nil
+	return item, nil
 }
 
 func (r *historyRepo) Delete(ctx context.Context, id string) error {
-	result := r.db.WithContext(ctx).Delete(&datadb.File{}, "id = ?", id)
+	result := r.client.DB.WithContext(ctx).Delete(&HistoryRecord{}, "id = ?", id)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -119,17 +159,5 @@ func (r *historyRepo) Delete(ctx context.Context, id string) error {
 }
 
 func (r *historyRepo) DeleteBySession(ctx context.Context, sessionID string) error {
-	return r.db.WithContext(ctx).Delete(&datadb.File{}, "session_id = ?", sessionID).Error
-}
-
-func fromDBFiles(rows []datadb.File) []File {
-	items := make([]File, len(rows))
-	for i, row := range rows {
-		items[i] = fromDBFile(row)
-	}
-	return items
-}
-
-func fromDBFile(item datadb.File) File {
-	return File(item)
+	return r.client.DB.WithContext(ctx).Delete(&HistoryRecord{}, "session_id = ?", sessionID).Error
 }

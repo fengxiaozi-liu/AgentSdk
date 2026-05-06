@@ -4,22 +4,23 @@ import (
 	"context"
 	"testing"
 
-	"ferryman-agent/config"
 	datadb "ferryman-agent/data/db"
 	"ferryman-agent/data/repo"
 )
 
 func TestServiceUsesHistoryRepoVersions(t *testing.T) {
 	ctx := context.Background()
-	database, err := datadb.Open(config.DatabaseConfig{
-		Type:        config.DatabaseSQLite,
-		Path:        ":memory:",
-		AutoMigrate: true,
+	client, err := datadb.Open(datadb.DatabaseConfig{
+		Type: datadb.DatabaseSQLite,
+		Path: ":memory:",
 	})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	service := NewService(repo.NewHistoryRepo(database))
+	if err := client.AutoMigrate(&repo.SessionRecord{}, &repo.MessageRecord{}, &repo.HistoryRecord{}); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+	service := NewService(repo.NewHistoryRepo(client))
 
 	first, err := service.Create(ctx, "s1", "file.txt", "one")
 	if err != nil {

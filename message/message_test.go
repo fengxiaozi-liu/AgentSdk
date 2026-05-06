@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"ferryman-agent/config"
 	datadb "ferryman-agent/data/db"
 	"ferryman-agent/data/repo"
 	"ferryman-agent/llm/models"
@@ -12,16 +11,18 @@ import (
 
 func TestServiceUsesMessageRepoAndRoundTripsParts(t *testing.T) {
 	ctx := context.Background()
-	database, err := datadb.Open(config.DatabaseConfig{
-		Type:        config.DatabaseSQLite,
-		Path:        ":memory:",
-		AutoMigrate: true,
+	client, err := datadb.Open(datadb.DatabaseConfig{
+		Type: datadb.DatabaseSQLite,
+		Path: ":memory:",
 	})
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	sessions := repo.NewSessionRepo(database)
-	messages := repo.NewMessageRepo(database)
+	if err := client.AutoMigrate(&repo.SessionRecord{}, &repo.MessageRecord{}, &repo.HistoryRecord{}); err != nil {
+		t.Fatalf("migrate db: %v", err)
+	}
+	sessions := repo.NewSessionRepo(client)
+	messages := repo.NewMessageRepo(client)
 	_, err = sessions.Create(ctx, repo.CreateSessionParams{ID: "s1", Title: "work"})
 	if err != nil {
 		t.Fatalf("create session: %v", err)

@@ -137,7 +137,7 @@ func (s *service) List(ctx context.Context, sessionID string) ([]Message, error)
 	return messages, nil
 }
 
-func (s *service) fromDBItem(item repo.Message) (Message, error) {
+func (s *service) fromDBItem(item repo.MessageRecord) (Message, error) {
 	parts, err := unmarshallParts([]byte(item.Parts))
 	if err != nil {
 		return Message{}, err

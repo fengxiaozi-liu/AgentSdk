@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	datadb "ferryman-agent/data/db"
 	"ferryman-agent/llm/models"
 )
 
@@ -33,38 +34,8 @@ type Provider struct {
 	Disabled bool   `json:"disabled"`
 }
 
-type DatabaseType string
-
-const (
-	DatabaseSQLite DatabaseType = "sqlite"
-	DatabaseMySQL  DatabaseType = "mysql"
-)
-
-type DatabaseConfig struct {
-	Type DatabaseType `json:"type"`
-	DSN  string       `json:"dsn,omitempty"`
-
-	Path string `json:"path,omitempty"`
-
-	Host      string `json:"host,omitempty"`
-	Port      int    `json:"port,omitempty"`
-	Username  string `json:"username,omitempty"`
-	Password  string `json:"password,omitempty"`
-	Database  string `json:"database,omitempty"`
-	Charset   string `json:"charset,omitempty"`
-	ParseTime bool   `json:"parseTime,omitempty"`
-	Loc       string `json:"loc,omitempty"`
-
-	AutoMigrate         bool   `json:"autoMigrate,omitempty"`
-	MaxOpenConns        int    `json:"maxOpenConns,omitempty"`
-	MaxIdleConns        int    `json:"maxIdleConns,omitempty"`
-	ConnMaxLifetimeSecs int    `json:"connMaxLifetimeSecs,omitempty"`
-	LogLevel            string `json:"logLevel,omitempty"`
-}
-
 type Data struct {
-	Directory string         `json:"directory,omitempty"`
-	Database  DatabaseConfig `json:"database,omitempty"`
+	Directory string `json:"directory,omitempty"`
 }
 
 type ModelConfig struct {
@@ -77,6 +48,7 @@ type ModelConfig struct {
 
 type Config struct {
 	Data             Data                              `json:"data"`
+	Database         datadb.DatabaseConfig             `json:"database,omitempty"`
 	WorkingDir       string                            `json:"wd,omitempty"`
 	MCPServers       map[string]MCPServer              `json:"mcpServers,omitempty"`
 	Providers        map[models.ModelProvider]Provider `json:"providers,omitempty"`
@@ -111,11 +83,11 @@ func WithDefaults(config Config) Config {
 	if config.Data.Directory == "" {
 		config.Data.Directory = DefaultDataDirectory
 	}
-	if config.Data.Database.Type == "" {
-		config.Data.Database.Type = DatabaseSQLite
+	if config.Database.Type == "" {
+		config.Database.Type = datadb.DatabaseSQLite
 	}
-	if config.Data.Database.Type == DatabaseSQLite && config.Data.Database.Path == "" && config.Data.Database.DSN == "" {
-		config.Data.Database.Path = filepath.Join(config.Data.Directory, "agent.db")
+	if config.Database.Type == datadb.DatabaseSQLite && config.Database.Path == "" && config.Database.DSN == "" {
+		config.Database.Path = filepath.Join(config.Data.Directory, "agent.db")
 	}
 	if config.Providers == nil {
 		config.Providers = make(map[models.ModelProvider]Provider)
@@ -150,10 +122,10 @@ func Validate(config Config) error {
 	if config.Model.Provider != "" && config.Model.Model == "" {
 		return fmt.Errorf("model id is required")
 	}
-	switch config.Data.Database.Type {
-	case "", DatabaseSQLite, DatabaseMySQL:
+	switch config.Database.Type {
+	case "", datadb.DatabaseSQLite, datadb.DatabaseMySQL:
 	default:
-		return fmt.Errorf("unsupported database type: %s", config.Data.Database.Type)
+		return fmt.Errorf("unsupported database type: %s", config.Database.Type)
 	}
 	return nil
 }

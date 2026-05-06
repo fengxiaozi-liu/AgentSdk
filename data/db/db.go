@@ -7,50 +7,49 @@ import (
 	"path/filepath"
 	"time"
 
-	"ferryman-agent/config"
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-type Session struct {
-	ID               string `gorm:"primaryKey"`
-	ParentSessionID  string `gorm:"index"`
-	Title            string
-	MessageCount     int64
-	PromptTokens     int64
-	CompletionTokens int64
-	SummaryMessageID string
-	Cost             float64
-	CreatedAt        int64 `gorm:"autoCreateTime"`
-	UpdatedAt        int64 `gorm:"autoUpdateTime"`
+type DatabaseType string
+
+const (
+	DatabaseSQLite DatabaseType = "sqlite"
+	DatabaseMySQL  DatabaseType = "mysql"
+)
+
+type DatabaseConfig struct {
+	Type DatabaseType `json:"type"`
+	DSN  string       `json:"dsn,omitempty"`
+
+	Path string `json:"path,omitempty"`
+
+	Host      string `json:"host,omitempty"`
+	Port      int    `json:"port,omitempty"`
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
+	Database  string `json:"database,omitempty"`
+	Charset   string `json:"charset,omitempty"`
+	ParseTime bool   `json:"parseTime,omitempty"`
+	Loc       string `json:"loc,omitempty"`
+
+	AutoMigrate         bool   `json:"autoMigrate,omitempty"`
+	MaxOpenConns        int    `json:"maxOpenConns,omitempty"`
+	MaxIdleConns        int    `json:"maxIdleConns,omitempty"`
+	ConnMaxLifetimeSecs int    `json:"connMaxLifetimeSecs,omitempty"`
+	LogLevel            string `json:"logLevel,omitempty"`
 }
 
-type Message struct {
-	ID         string `gorm:"primaryKey"`
-	SessionID  string `gorm:"index"`
-	Role       string
-	Parts      string
-	Model      string
-	FinishedAt int64
-	CreatedAt  int64 `gorm:"autoCreateTime"`
-	UpdatedAt  int64 `gorm:"autoUpdateTime"`
+type DbClient struct {
+	DB     *gorm.DB
+	Config DatabaseConfig
 }
 
-type File struct {
-	ID        string `gorm:"primaryKey"`
-	SessionID string `gorm:"index"`
-	Path      string `gorm:"index"`
-	Content   string
-	Version   string
-	CreatedAt int64 `gorm:"autoCreateTime"`
-	UpdatedAt int64 `gorm:"autoUpdateTime"`
-}
-
-func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
+func Open(cfg DatabaseConfig) (*DbClient, error) {
 	if cfg.Type == "" {
-		cfg.Type = config.DatabaseSQLite
+		cfg.Type = DatabaseSQLite
 	}
 
 	gormCfg := &gorm.Config{Logger: logger.Default.LogMode(parseLogLevel(cfg.LogLevel))}
@@ -59,13 +58,13 @@ func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		err      error
 	)
 	switch cfg.Type {
-	case config.DatabaseSQLite:
+	case DatabaseSQLite:
 		dsn := cfg.DSN
 		if dsn == "" {
 			dsn = cfg.Path
 		}
 		if dsn == "" {
-			dsn = filepath.Join(config.DefaultDataDirectory, "agent.db")
+			dsn = filepath.Join(".ferryer", "agent.db")
 		}
 		if dir := filepath.Dir(dsn); dir != "." && dir != "" {
 			if mkErr := os.MkdirAll(dir, 0o755); mkErr != nil {
@@ -73,7 +72,7 @@ func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 			}
 		}
 		database, err = gorm.Open(sqlite.Open(dsn), gormCfg)
-	case config.DatabaseMySQL:
+	case DatabaseMySQL:
 		dsn := cfg.DSN
 		if dsn == "" {
 			dsn = mysqlDSN(cfg)
@@ -98,19 +97,14 @@ func Open(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		}
 	}
 
-	if cfg.AutoMigrate {
-		if err := AutoMigrate(database); err != nil {
-			return nil, err
-		}
-	}
-	return database, nil
+	return &DbClient{DB: database, Config: cfg}, nil
 }
 
-func AutoMigrate(database *gorm.DB) error {
-	return database.AutoMigrate(&Session{}, &Message{}, &File{})
+func (c *DbClient) AutoMigrate(models ...any) error {
+	return c.DB.AutoMigrate(models...)
 }
 
-func mysqlDSN(cfg config.DatabaseConfig) string {
+func mysqlDSN(cfg DatabaseConfig) string {
 	host := cfg.Host
 	if host == "" {
 		host = "127.0.0.1"
