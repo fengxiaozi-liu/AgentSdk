@@ -59,7 +59,7 @@ type Service interface {
 
 type agent struct {
 	*pubsub.Broker[AgentEvent]
-	sessions session.Service
+	sessions session.Service //
 	messages message.Service
 
 	tools    []toolcore.BaseTool
@@ -711,6 +711,7 @@ func createAgentProvider(agentName sdkconfig.AgentName) (provider.Provider, erro
 	if !ok {
 		return nil, fmt.Errorf("agent %s not found", agentName)
 	}
+	// 查看支持模型，这里要更新一下， 所有模型都支持
 	model, ok := models.SupportedModels[agentConfig.Model]
 	if !ok {
 		return nil, fmt.Errorf("model %s not supported", agentConfig.Model)
@@ -723,6 +724,7 @@ func createAgentProvider(agentName sdkconfig.AgentName) (provider.Provider, erro
 	if providerCfg.Disabled {
 		return nil, fmt.Errorf("provider %s is not enabled", model.Provider)
 	}
+	// 模型是否有最大支持token，如果没有则使用agent的token
 	maxTokens := model.DefaultMaxTokens
 	if agentConfig.MaxTokens > 0 {
 		maxTokens = agentConfig.MaxTokens
@@ -730,6 +732,7 @@ func createAgentProvider(agentName sdkconfig.AgentName) (provider.Provider, erro
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
 		provider.WithModel(model),
+		// 这个prompt的系统提示词可以优化放到一个文件中，然后再映射到对应的文件
 		provider.WithSystemMessage(prompt.GetAgentPrompt(internalconfig.AgentName(agentName), model.Provider)),
 		provider.WithMaxTokens(maxTokens),
 	}
