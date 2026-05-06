@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"time"
 
 	datadb "ferryman-agent/data/db"
 	"gorm.io/gorm"
@@ -17,38 +18,35 @@ type SessionRecord struct {
 	CompletionTokens int64   `gorm:"column:completion_tokens"`
 	SummaryMessageID string  `gorm:"column:summary_message_id"`
 	Cost             float64 `gorm:"column:cost"`
-	CreatedAt        int64   `gorm:"column:created_at;autoCreateTime:milli"`
-	UpdatedAt        int64   `gorm:"column:updated_at;autoUpdateTime:milli"`
+	CreatedAt        int64   `gorm:"column:created_at;autoCreateTime:nano"`
+	UpdatedAt        int64   `gorm:"column:updated_at;autoUpdateTime:nano"`
 }
 
 func (SessionRecord) TableName() string {
 	return "sessions"
 }
 
-type CreateSessionParams struct {
-	ID               string
-	ParentSessionID  string
-	Title            string
-	MessageCount     int64
-	PromptTokens     int64
-	CompletionTokens int64
-	Cost             float64
+func (r *SessionRecord) BeforeCreate(*gorm.DB) error {
+	now := time.Now().UnixNano()
+	if r.CreatedAt == 0 {
+		r.CreatedAt = now
+	}
+	if r.UpdatedAt == 0 {
+		r.UpdatedAt = now
+	}
+	return nil
 }
 
-type UpdateSessionParams struct {
-	ID               string
-	Title            string
-	PromptTokens     int64
-	CompletionTokens int64
-	SummaryMessageID string
-	Cost             float64
+func (r *SessionRecord) BeforeUpdate(*gorm.DB) error {
+	r.UpdatedAt = time.Now().UnixNano()
+	return nil
 }
 
 type SessionRepo interface {
-	Create(context.Context, CreateSessionParams) (SessionRecord, error)
+	Create(context.Context, SessionRecord) (SessionRecord, error)
 	Get(context.Context, string) (SessionRecord, error)
 	ListRoot(context.Context) ([]SessionRecord, error)
-	Update(context.Context, UpdateSessionParams) (SessionRecord, error)
+	Update(context.Context, SessionRecord) (SessionRecord, error)
 	Delete(context.Context, string) error
 	IncrementMessageCount(context.Context, string, int64) error
 }
@@ -61,16 +59,7 @@ func NewSessionRepo(client *datadb.DbClient) SessionRepo {
 	return &sessionRepo{client: client}
 }
 
-func (r *sessionRepo) Create(ctx context.Context, params CreateSessionParams) (SessionRecord, error) {
-	item := SessionRecord{
-		ID:               params.ID,
-		ParentSessionID:  params.ParentSessionID,
-		Title:            params.Title,
-		MessageCount:     params.MessageCount,
-		PromptTokens:     params.PromptTokens,
-		CompletionTokens: params.CompletionTokens,
-		Cost:             params.Cost,
-	}
+func (r *sessionRepo) Create(ctx context.Context, item SessionRecord) (SessionRecord, error) {
 	if err := r.client.DB.WithContext(ctx).Create(&item).Error; err != nil {
 		return SessionRecord{}, err
 	}
@@ -96,19 +85,19 @@ func (r *sessionRepo) ListRoot(ctx context.Context) ([]SessionRecord, error) {
 	return rows, nil
 }
 
-func (r *sessionRepo) Update(ctx context.Context, params UpdateSessionParams) (SessionRecord, error) {
+func (r *sessionRepo) Update(ctx context.Context, record SessionRecord) (SessionRecord, error) {
 	var item SessionRecord
-	if err := r.client.DB.WithContext(ctx).First(&item, "id = ?", params.ID).Error; err != nil {
+	if err := r.client.DB.WithContext(ctx).First(&item, "id = ?", record.ID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return SessionRecord{}, ErrRepoNotFound
 		}
 		return SessionRecord{}, err
 	}
-	item.Title = params.Title
-	item.PromptTokens = params.PromptTokens
-	item.CompletionTokens = params.CompletionTokens
-	item.SummaryMessageID = params.SummaryMessageID
-	item.Cost = params.Cost
+	item.Title = record.Title
+	item.PromptTokens = record.PromptTokens
+	item.CompletionTokens = record.CompletionTokens
+	item.SummaryMessageID = record.SummaryMessageID
+	item.Cost = record.Cost
 	if err := r.client.DB.WithContext(ctx).Save(&item).Error; err != nil {
 		return SessionRecord{}, err
 	}

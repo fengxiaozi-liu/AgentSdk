@@ -23,7 +23,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 	messages := NewMessageRepo(client)
 	history := NewHistoryRepo(client)
 
-	session, err := sessions.Create(ctx, CreateSessionParams{ID: "s1", Title: "root"})
+	session, err := sessions.Create(ctx, SessionRecord{ID: "s1", Title: "root"})
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 		t.Fatalf("unexpected session title: %q", session.Title)
 	}
 
-	message, err := messages.Create(ctx, CreateMessageParams{
+	message, err := messages.Create(ctx, MessageRecord{
 		ID:        "m1",
 		SessionID: "s1",
 		Role:      "user",
@@ -52,7 +52,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 		t.Fatalf("expected message count 1, got %d", session.MessageCount)
 	}
 
-	file, err := history.Create(ctx, CreateFileParams{
+	file, err := history.Create(ctx, HistoryRecord{
 		ID:        "f1",
 		SessionID: "s1",
 		Path:      "file.txt",
@@ -65,7 +65,7 @@ func TestRepositoriesCoverSessionMessageAndHistory(t *testing.T) {
 	if file.Version != "initial" {
 		t.Fatalf("unexpected file version: %q", file.Version)
 	}
-	_, err = history.Create(ctx, CreateFileParams{
+	_, err = history.Create(ctx, HistoryRecord{
 		ID:        "f2",
 		SessionID: "s1",
 		Path:      "file.txt",

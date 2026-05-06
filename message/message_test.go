@@ -23,7 +23,7 @@ func TestServiceUsesMessageRepoAndRoundTripsParts(t *testing.T) {
 	}
 	sessions := repo.NewSessionRepo(client)
 	messages := repo.NewMessageRepo(client)
-	_, err = sessions.Create(ctx, repo.CreateSessionParams{ID: "s1", Title: "work"})
+	_, err = sessions.Create(ctx, repo.SessionRecord{ID: "s1", Title: "work"})
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}

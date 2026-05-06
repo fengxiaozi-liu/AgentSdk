@@ -42,7 +42,7 @@ func NewService(sessionRepo repo.SessionRepo) Service {
 }
 
 func (s *service) Create(ctx context.Context, title string) (Session, error) {
-	dbSession, err := s.repo.Create(ctx, repo.CreateSessionParams{
+	dbSession, err := s.repo.Create(ctx, repo.SessionRecord{
 		ID: uuid.New().String(), Title: title,
 	})
 	if err != nil {
@@ -54,7 +54,7 @@ func (s *service) Create(ctx context.Context, title string) (Session, error) {
 }
 
 func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error) {
-	dbSession, err := s.repo.Create(ctx, repo.CreateSessionParams{
+	dbSession, err := s.repo.Create(ctx, repo.SessionRecord{
 		ID:              toolCallID,
 		ParentSessionID: parentSessionID,
 		Title:           title,
@@ -68,7 +68,7 @@ func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessi
 }
 
 func (s *service) CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error) {
-	dbSession, err := s.repo.Create(ctx, repo.CreateSessionParams{
+	dbSession, err := s.repo.Create(ctx, repo.SessionRecord{
 		ID:              "title-" + parentSessionID,
 		ParentSessionID: parentSessionID,
 		Title:           "Generate a title",
@@ -102,7 +102,7 @@ func (s *service) Get(ctx context.Context, id string) (Session, error) {
 }
 
 func (s *service) Save(ctx context.Context, session Session) (Session, error) {
-	dbSession, err := s.repo.Update(ctx, repo.UpdateSessionParams{
+	dbSession, err := s.repo.Update(ctx, repo.SessionRecord{
 		ID:               session.ID,
 		Title:            session.Title,
 		PromptTokens:     session.PromptTokens,

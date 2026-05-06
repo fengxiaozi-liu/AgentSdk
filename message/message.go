@@ -60,7 +60,7 @@ func (s *service) Create(ctx context.Context, sessionID string, params CreateMes
 	if err != nil {
 		return Message{}, err
 	}
-	dbMessage, err := s.repo.Create(ctx, repo.CreateMessageParams{
+	dbMessage, err := s.repo.Create(ctx, repo.MessageRecord{
 		ID:        uuid.New().String(),
 		SessionID: sessionID,
 		Role:      string(params.Role),
@@ -102,7 +102,7 @@ func (s *service) Update(ctx context.Context, message Message) error {
 	if f := message.FinishPart(); f != nil {
 		finishedAt = f.Time
 	}
-	if err := s.repo.Update(ctx, repo.UpdateMessageParams{
+	if err := s.repo.Update(ctx, repo.MessageRecord{
 		ID:         message.ID,
 		Parts:      string(parts),
 		FinishedAt: finishedAt,

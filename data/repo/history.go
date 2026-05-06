@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"time"
 
 	datadb "ferryman-agent/data/db"
 	"gorm.io/gorm"
@@ -14,36 +15,38 @@ type HistoryRecord struct {
 	Path      string `gorm:"column:path;index"`
 	Content   string `gorm:"column:content"`
 	Version   string `gorm:"column:version"`
-	CreatedAt int64  `gorm:"column:created_at;autoCreateTime:milli"`
-	UpdatedAt int64  `gorm:"column:updated_at;autoUpdateTime:milli"`
+	CreatedAt int64  `gorm:"column:created_at;autoCreateTime:nano"`
+	UpdatedAt int64  `gorm:"column:updated_at;autoUpdateTime:nano"`
 }
 
 func (HistoryRecord) TableName() string {
 	return "history"
 }
 
-type CreateFileParams struct {
-	ID        string
-	SessionID string
-	Path      string
-	Content   string
-	Version   string
+func (r *HistoryRecord) BeforeCreate(*gorm.DB) error {
+	now := time.Now().UnixNano()
+	if r.CreatedAt == 0 {
+		r.CreatedAt = now
+	}
+	if r.UpdatedAt == 0 {
+		r.UpdatedAt = now
+	}
+	return nil
 }
 
-type UpdateFileParams struct {
-	ID      string
-	Content string
-	Version string
+func (r *HistoryRecord) BeforeUpdate(*gorm.DB) error {
+	r.UpdatedAt = time.Now().UnixNano()
+	return nil
 }
 
 type HistoryRepo interface {
-	Create(context.Context, CreateFileParams) (HistoryRecord, error)
+	Create(context.Context, HistoryRecord) (HistoryRecord, error)
 	Get(context.Context, string) (HistoryRecord, error)
 	GetLatestByPathAndSession(context.Context, string, string) (HistoryRecord, error)
 	ListByPath(context.Context, string) ([]HistoryRecord, error)
 	ListBySession(context.Context, string) ([]HistoryRecord, error)
 	ListLatestBySession(context.Context, string) ([]HistoryRecord, error)
-	Update(context.Context, UpdateFileParams) (HistoryRecord, error)
+	Update(context.Context, HistoryRecord) (HistoryRecord, error)
 	Delete(context.Context, string) error
 	DeleteBySession(context.Context, string) error
 }
@@ -56,14 +59,7 @@ func NewHistoryRepo(client *datadb.DbClient) HistoryRepo {
 	return &historyRepo{client: client}
 }
 
-func (r *historyRepo) Create(ctx context.Context, params CreateFileParams) (HistoryRecord, error) {
-	item := HistoryRecord{
-		ID:        params.ID,
-		SessionID: params.SessionID,
-		Path:      params.Path,
-		Content:   params.Content,
-		Version:   params.Version,
-	}
+func (r *historyRepo) Create(ctx context.Context, item HistoryRecord) (HistoryRecord, error) {
 	if err := r.client.DB.WithContext(ctx).Create(&item).Error; err != nil {
 		return HistoryRecord{}, err
 	}
@@ -131,16 +127,16 @@ func (r *historyRepo) ListLatestBySession(ctx context.Context, sessionID string)
 	return items, nil
 }
 
-func (r *historyRepo) Update(ctx context.Context, params UpdateFileParams) (HistoryRecord, error) {
+func (r *historyRepo) Update(ctx context.Context, record HistoryRecord) (HistoryRecord, error) {
 	var item HistoryRecord
-	if err := r.client.DB.WithContext(ctx).First(&item, "id = ?", params.ID).Error; err != nil {
+	if err := r.client.DB.WithContext(ctx).First(&item, "id = ?", record.ID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return HistoryRecord{}, ErrRepoNotFound
 		}
 		return HistoryRecord{}, err
 	}
-	item.Content = params.Content
-	item.Version = params.Version
+	item.Content = record.Content
+	item.Version = record.Version
 	if err := r.client.DB.WithContext(ctx).Save(&item).Error; err != nil {
 		return HistoryRecord{}, err
 	}

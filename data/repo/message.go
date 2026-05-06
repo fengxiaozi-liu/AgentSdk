@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"time"
 
 	datadb "ferryman-agent/data/db"
 	"gorm.io/gorm"
@@ -15,31 +16,33 @@ type MessageRecord struct {
 	Parts      string `gorm:"column:parts"`
 	Model      string `gorm:"column:model"`
 	FinishedAt int64  `gorm:"column:finished_at"`
-	CreatedAt  int64  `gorm:"column:created_at;autoCreateTime:milli"`
-	UpdatedAt  int64  `gorm:"column:updated_at;autoUpdateTime:milli"`
+	CreatedAt  int64  `gorm:"column:created_at;autoCreateTime:nano"`
+	UpdatedAt  int64  `gorm:"column:updated_at;autoUpdateTime:nano"`
 }
 
 func (MessageRecord) TableName() string {
 	return "messages"
 }
 
-type CreateMessageParams struct {
-	ID        string
-	SessionID string
-	Role      string
-	Parts     string
-	Model     string
+func (r *MessageRecord) BeforeCreate(*gorm.DB) error {
+	now := time.Now().UnixNano()
+	if r.CreatedAt == 0 {
+		r.CreatedAt = now
+	}
+	if r.UpdatedAt == 0 {
+		r.UpdatedAt = now
+	}
+	return nil
 }
 
-type UpdateMessageParams struct {
-	ID         string
-	Parts      string
-	FinishedAt int64
+func (r *MessageRecord) BeforeUpdate(*gorm.DB) error {
+	r.UpdatedAt = time.Now().UnixNano()
+	return nil
 }
 
 type MessageRepo interface {
-	Create(context.Context, CreateMessageParams) (MessageRecord, error)
-	Update(context.Context, UpdateMessageParams) error
+	Create(context.Context, MessageRecord) (MessageRecord, error)
+	Update(context.Context, MessageRecord) error
 	Get(context.Context, string) (MessageRecord, error)
 	ListBySession(context.Context, string) ([]MessageRecord, error)
 	Delete(context.Context, string) error
@@ -54,14 +57,7 @@ func NewMessageRepo(client *datadb.DbClient) MessageRepo {
 	return &messageRepo{client: client}
 }
 
-func (r *messageRepo) Create(ctx context.Context, params CreateMessageParams) (MessageRecord, error) {
-	item := MessageRecord{
-		ID:        params.ID,
-		SessionID: params.SessionID,
-		Role:      params.Role,
-		Parts:     params.Parts,
-		Model:     params.Model,
-	}
+func (r *messageRepo) Create(ctx context.Context, item MessageRecord) (MessageRecord, error) {
 	err := r.client.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&item).Error; err != nil {
 			return err
@@ -75,16 +71,16 @@ func (r *messageRepo) Create(ctx context.Context, params CreateMessageParams) (M
 	return item, nil
 }
 
-func (r *messageRepo) Update(ctx context.Context, params UpdateMessageParams) error {
+func (r *messageRepo) Update(ctx context.Context, record MessageRecord) error {
 	var item MessageRecord
-	if err := r.client.DB.WithContext(ctx).First(&item, "id = ?", params.ID).Error; err != nil {
+	if err := r.client.DB.WithContext(ctx).First(&item, "id = ?", record.ID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrRepoNotFound
 		}
 		return err
 	}
-	item.Parts = params.Parts
-	item.FinishedAt = params.FinishedAt
+	item.Parts = record.Parts
+	item.FinishedAt = record.FinishedAt
 	return r.client.DB.WithContext(ctx).Save(&item).Error
 }
 

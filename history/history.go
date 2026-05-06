@@ -77,7 +77,7 @@ func (s *service) CreateVersion(ctx context.Context, sessionID, path, content st
 }
 
 func (s *service) createWithVersion(ctx context.Context, sessionID, path, content, version string) (File, error) {
-	dbFile, err := s.repo.Create(ctx, repo.CreateFileParams{
+	dbFile, err := s.repo.Create(ctx, repo.HistoryRecord{
 		ID:        uuid.New().String(),
 		SessionID: sessionID,
 		Path:      path,
@@ -133,7 +133,7 @@ func (s *service) ListLatestSessionFiles(ctx context.Context, sessionID string) 
 }
 
 func (s *service) Update(ctx context.Context, file File) (File, error) {
-	dbFile, err := s.repo.Update(ctx, repo.UpdateFileParams{ID: file.ID, Content: file.Content, Version: file.Version})
+	dbFile, err := s.repo.Update(ctx, repo.HistoryRecord{ID: file.ID, Content: file.Content, Version: file.Version})
 	if err != nil {
 		return File{}, err
 	}
