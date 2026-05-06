@@ -1,5 +1,34 @@
 package models
 
+import (
+	"embed"
+	"encoding/json"
+	"sync"
+)
+
+//go:embed models.json
+var defaultModelsFS embed.FS
+
+type (
+	ModelID       string
+	ModelProvider string
+)
+
+const (
+	ProviderAnthropic  ModelProvider = "anthropic"
+	ProviderAzure      ModelProvider = "azure"
+	ProviderBedrock    ModelProvider = "bedrock"
+	ProviderCopilot    ModelProvider = "copilot"
+	ProviderGemini     ModelProvider = "gemini"
+	ProviderGROQ       ModelProvider = "groq"
+	ProviderLocal      ModelProvider = "local"
+	ProviderOpenAI     ModelProvider = "openai"
+	ProviderOpenRouter ModelProvider = "openrouter"
+	ProviderVertexAI   ModelProvider = "vertexai"
+	ProviderXAI        ModelProvider = "xai"
+	ProviderMock       ModelProvider = "__mock"
+)
+
 type Model struct {
 	ID                  ModelID `json:"id"`
 	Name                string  `json:"name"`
@@ -12,4 +41,58 @@ type Model struct {
 	DefaultMaxTokens    int64   `json:"default_max_tokens"`
 	CanReason           bool    `json:"can_reason"`
 	SupportsAttachments bool    `json:"supports_attachments"`
+}
+
+type ProviderModels struct {
+	Models map[ModelID]Model `json:"models"`
+}
+
+type Catalog struct {
+	Providers map[ModelProvider]ProviderModels `json:"providers"`
+}
+
+var (
+	onceCatalog sync.Once
+	catalog     Catalog
+	catalogErr  error
+)
+
+func LoadCatalog() (Catalog, error) {
+	onceCatalog.Do(func() {
+		content, err := defaultModelsFS.ReadFile("models.json")
+		if err != nil {
+			catalogErr = err
+			return
+		}
+		catalogErr = json.Unmarshal(content, &catalog)
+	})
+	return catalog, catalogErr
+}
+
+func ResolveModel(provider ModelProvider, modelID ModelID) Model {
+	if loaded, err := LoadCatalog(); err == nil {
+		if providerModels, ok := loaded.Providers[provider]; ok {
+			if model, ok := providerModels.Models[modelID]; ok {
+				return normalizeModel(modelID, model)
+			}
+		}
+	}
+	return normalizeModel(modelID, Model{ID: modelID, Name: string(modelID), APIModel: string(modelID)})
+}
+
+func normalizeModel(modelID ModelID, model Model) Model {
+	if model.ID == "" {
+		model.ID = modelID
+	}
+	if model.Name == "" {
+		model.Name = string(model.ID)
+	}
+	if model.APIModel == "" {
+		model.APIModel = string(model.ID)
+	}
+	if model.DefaultMaxTokens <= 0 {
+		model.DefaultMaxTokens = 4096
+	}
+	model.SupportsAttachments = true
+	return model
 }

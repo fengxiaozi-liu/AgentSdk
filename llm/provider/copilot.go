@@ -88,12 +88,8 @@ func loadGitHubToken() (string, error) {
 }
 
 func (c *copilotClient) isAnthropicModel() bool {
-	for _, modelId := range models.CopilotAnthropicModels {
-		if c.providerOptions.model.ID == modelId {
-			return true
-		}
-	}
-	return false
+	modelID := string(c.providerOptions.model.ID)
+	return strings.HasPrefix(modelID, "copilot.claude-") || strings.HasPrefix(modelID, "claude-")
 }
 
 // loadGitHubToken loads the GitHub OAuth token from the standard GitHub CLI/Copilot locations

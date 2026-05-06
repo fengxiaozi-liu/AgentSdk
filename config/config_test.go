@@ -39,8 +39,8 @@ func TestUseAndModelProfile(t *testing.T) {
 	if !ok {
 		t.Fatal("expected coder model profile")
 	}
-	if runtimeCfg.Model != models.O4Mini {
-		t.Fatalf("expected model %q, got %q", models.O4Mini, runtimeCfg.Model)
+	if runtimeCfg.Model != models.ModelID("o4-mini") {
+		t.Fatalf("expected model %q, got %q", "o4-mini", runtimeCfg.Model)
 	}
 	if runtimeCfg.MaxTokens != 2048 {
 		t.Fatalf("expected max tokens 2048, got %d", runtimeCfg.MaxTokens)
