@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
 	"github.com/spf13/viper"
 )
 
@@ -53,7 +53,6 @@ func init() {
 		loadLocalModels(models)
 
 		viper.SetDefault("providers.local.apiKey", "dummy")
-		ProviderPopularity[ProviderLocal] = 0
 	}
 }
 
@@ -126,7 +125,7 @@ func listLocalModels(modelsEndpoint string) []localModel {
 func loadLocalModels(models []localModel) {
 	for i, m := range models {
 		model := convertLocalModel(m)
-		SupportedModels[model.ID] = model
+		knownModels[model.ID] = model
 
 		if i == 0 || m.State == "loaded" {
 			viper.SetDefault("agents.coder.model", model.ID)

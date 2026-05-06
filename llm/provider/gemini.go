@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"ferryman-agent/config"
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
 	"ferryman-agent/message"
 	toolcore "ferryman-agent/tools/core"
 	"github.com/google/uuid"

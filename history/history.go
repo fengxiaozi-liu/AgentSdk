@@ -2,13 +2,11 @@ package history
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
-	agentdb "ferryman-agent/infra/db"
+	"ferryman-agent/data/repo"
 	"ferryman-agent/pubsub"
 	"github.com/google/uuid"
 )
@@ -40,12 +38,11 @@ type Service interface {
 
 type service struct {
 	*pubsub.Broker[File]
-	db *sql.DB
-	q  *agentdb.Queries
+	repo repo.HistoryRepo
 }
 
-func NewService(q *agentdb.Queries, db *sql.DB) Service {
-	return &service{Broker: pubsub.NewBroker[File](), q: q, db: db}
+func NewService(historyRepo repo.HistoryRepo) Service {
+	return &service{Broker: pubsub.NewBroker[File](), repo: historyRepo}
 }
 
 func (s *service) Create(ctx context.Context, sessionID, path, content string) (File, error) {
@@ -53,7 +50,7 @@ func (s *service) Create(ctx context.Context, sessionID, path, content string) (
 }
 
 func (s *service) CreateVersion(ctx context.Context, sessionID, path, content string) (File, error) {
-	files, err := s.q.ListFilesByPath(ctx, path)
+	files, err := s.repo.ListByPath(ctx, path)
 	if err != nil {
 		return File{}, err
 	}
@@ -80,90 +77,67 @@ func (s *service) CreateVersion(ctx context.Context, sessionID, path, content st
 }
 
 func (s *service) createWithVersion(ctx context.Context, sessionID, path, content, version string) (File, error) {
-	const maxRetries = 3
-	var file File
-	var err error
-
-	for attempt := range maxRetries {
-		tx, txErr := s.db.Begin()
-		if txErr != nil {
-			return File{}, fmt.Errorf("failed to begin transaction: %w", txErr)
-		}
-		qtx := s.q.WithTx(tx)
-		dbFile, txErr := qtx.CreateFile(ctx, agentdb.CreateFileParams{
-			ID: uuid.New().String(), SessionID: sessionID, Path: path, Content: content, Version: version,
-		})
-		if txErr != nil {
-			_ = tx.Rollback()
-			if strings.Contains(txErr.Error(), "UNIQUE constraint failed") && attempt < maxRetries-1 {
-				if strings.HasPrefix(version, "v") {
-					versionNum, parseErr := strconv.Atoi(version[1:])
-					if parseErr == nil {
-						version = fmt.Sprintf("v%d", versionNum+1)
-						continue
-					}
-				}
-				version = fmt.Sprintf("v%d", time.Now().Unix())
-				continue
-			}
-			return File{}, txErr
-		}
-		if txErr = tx.Commit(); txErr != nil {
-			return File{}, fmt.Errorf("failed to commit transaction: %w", txErr)
-		}
-		file = s.fromDBItem(dbFile)
-		s.Publish(pubsub.CreatedEvent, file)
-		return file, nil
+	dbFile, err := s.repo.Create(ctx, repo.CreateFileParams{
+		ID:        uuid.New().String(),
+		SessionID: sessionID,
+		Path:      path,
+		Content:   content,
+		Version:   version,
+	})
+	if err != nil {
+		return File{}, err
 	}
-	return file, err
+	file := s.fromRepoItem(dbFile)
+	s.Publish(pubsub.CreatedEvent, file)
+	return file, nil
 }
 
 func (s *service) Get(ctx context.Context, id string) (File, error) {
-	dbFile, err := s.q.GetFile(ctx, id)
+	dbFile, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return File{}, err
 	}
-	return s.fromDBItem(dbFile), nil
+	return s.fromRepoItem(dbFile), nil
 }
 
 func (s *service) GetByPathAndSession(ctx context.Context, path, sessionID string) (File, error) {
-	dbFile, err := s.q.GetFileByPathAndSession(ctx, agentdb.GetFileByPathAndSessionParams{Path: path, SessionID: sessionID})
+	dbFile, err := s.repo.GetLatestByPathAndSession(ctx, path, sessionID)
 	if err != nil {
 		return File{}, err
 	}
-	return s.fromDBItem(dbFile), nil
+	return s.fromRepoItem(dbFile), nil
 }
 
 func (s *service) ListBySession(ctx context.Context, sessionID string) ([]File, error) {
-	dbFiles, err := s.q.ListFilesBySession(ctx, sessionID)
+	dbFiles, err := s.repo.ListBySession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	files := make([]File, len(dbFiles))
 	for i, dbFile := range dbFiles {
-		files[i] = s.fromDBItem(dbFile)
+		files[i] = s.fromRepoItem(dbFile)
 	}
 	return files, nil
 }
 
 func (s *service) ListLatestSessionFiles(ctx context.Context, sessionID string) ([]File, error) {
-	dbFiles, err := s.q.ListLatestSessionFiles(ctx, sessionID)
+	dbFiles, err := s.repo.ListLatestBySession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 	files := make([]File, len(dbFiles))
 	for i, dbFile := range dbFiles {
-		files[i] = s.fromDBItem(dbFile)
+		files[i] = s.fromRepoItem(dbFile)
 	}
 	return files, nil
 }
 
 func (s *service) Update(ctx context.Context, file File) (File, error) {
-	dbFile, err := s.q.UpdateFile(ctx, agentdb.UpdateFileParams{ID: file.ID, Content: file.Content, Version: file.Version})
+	dbFile, err := s.repo.Update(ctx, repo.UpdateFileParams{ID: file.ID, Content: file.Content, Version: file.Version})
 	if err != nil {
 		return File{}, err
 	}
-	updatedFile := s.fromDBItem(dbFile)
+	updatedFile := s.fromRepoItem(dbFile)
 	s.Publish(pubsub.UpdatedEvent, updatedFile)
 	return updatedFile, nil
 }
@@ -173,7 +147,7 @@ func (s *service) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.q.DeleteFile(ctx, id); err != nil {
+	if err := s.repo.Delete(ctx, id); err != nil {
 		return err
 	}
 	s.Publish(pubsub.DeletedEvent, file)
@@ -193,14 +167,6 @@ func (s *service) DeleteSessionFiles(ctx context.Context, sessionID string) erro
 	return nil
 }
 
-func (s *service) fromDBItem(item agentdb.File) File {
-	return File{
-		ID:        item.ID,
-		SessionID: item.SessionID,
-		Path:      item.Path,
-		Content:   item.Content,
-		Version:   item.Version,
-		CreatedAt: item.CreatedAt,
-		UpdatedAt: item.UpdatedAt,
-	}
+func (s *service) fromRepoItem(item repo.File) File {
+	return File(item)
 }

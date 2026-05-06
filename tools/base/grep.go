@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"ferryman-agent/config"
-	"ferryman-agent/infra/fileutil"
+	"ferryman-agent/utils/fileutil"
 )
 
 type GrepParams struct {

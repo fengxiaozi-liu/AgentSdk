@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"ferryman-agent/config"
-	"ferryman-agent/extensions/lsp"
 	"ferryman-agent/history"
 	"ferryman-agent/infra/diff"
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
 	"ferryman-agent/permission"
 	"ferryman-agent/tools/base/internal/support"
 	toolcore "ferryman-agent/tools/core"
@@ -29,9 +28,9 @@ type PatchResponseMetadata struct {
 }
 
 type patchTool struct {
-	lspClients  map[string]*lsp.Client
 	permissions permission.Service
 	files       history.Service
+	hooks       *toolcore.FileHookDispatcher
 }
 
 const (
@@ -66,11 +65,11 @@ CRITICAL REQUIREMENTS FOR USING THIS TOOL:
 The tool will apply all changes in a single atomic operation.`
 )
 
-func NewPatchTool(lspClients map[string]*lsp.Client, permissions permission.Service, files history.Service) toolcore.BaseTool {
+func NewPatchTool(permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
 	return &patchTool{
-		lspClients:  lspClients,
 		permissions: permissions,
 		files:       files,
+		hooks:       toolcore.NewFileHookDispatcher(hooks...),
 	}
 }
 
@@ -290,6 +289,7 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 	changedFiles := []string{}
 	totalAdditions := 0
 	totalRemovals := 0
+	hookResults := []toolcore.HookResult{}
 
 	for path, change := range commit.Changes {
 		absPath := path
@@ -310,7 +310,7 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		}
 
 		// Calculate diff statistics
-		_, additions, removals := diff.GenerateDiff(oldContent, newContent, path)
+		patchDiff, additions, removals := diff.GenerateDiff(oldContent, newContent, path)
 		totalAdditions += additions
 		totalRemovals += removals
 
@@ -345,30 +345,35 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		// Record file operations
 		support.RecordFileWrite(absPath)
 		support.RecordFileRead(absPath)
-	}
 
-	// Run LSP diagnostics on all changed files
-	for _, filePath := range changedFiles {
-		waitForLspDiagnostics(ctx, filePath, p.lspClients)
+		hookResults = append(hookResults, p.hooks.Dispatch(ctx, toolcore.FileEvent{
+			Type:       toolcore.FilePatched,
+			ToolName:   PatchToolName,
+			ToolCallID: call.ID,
+			SessionID:  sessionID,
+			MessageID:  messageID,
+			Path:       absPath,
+			Paths:      changedFiles,
+			OldContent: oldContent,
+			NewContent: newContent,
+			Diff:       patchDiff,
+			Metadata: map[string]any{
+				"change_type": string(change.Type),
+				"additions":   additions,
+				"removals":    removals,
+			},
+		})...)
 	}
 
 	result := fmt.Sprintf("Patch applied successfully. %d files changed, %d additions, %d removals",
 		len(changedFiles), totalAdditions, totalRemovals)
 
-	diagnosticsText := ""
-	for _, filePath := range changedFiles {
-		diagnosticsText += getDiagnostics(filePath, p.lspClients)
-	}
-
-	if diagnosticsText != "" {
-		result += "\n\nDiagnostics:\n" + diagnosticsText
-	}
-
-	return toolcore.WithResponseMetadata(
+	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse(result),
 		PatchResponseMetadata{
 			FilesChanged: changedFiles,
 			Additions:    totalAdditions,
 			Removals:     totalRemovals,
-		}), nil
+		})
+	return toolcore.WithHookResults(response, hookResults), nil
 }

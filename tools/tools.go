@@ -2,12 +2,12 @@ package tools
 
 import (
 	"context"
-	agentlsp "ferryman-agent/extensions/lsp"
 	"ferryman-agent/history"
 	"ferryman-agent/message"
 	"ferryman-agent/permission"
 	"ferryman-agent/session"
 	agenttool "ferryman-agent/tools/agent"
+	basetools "ferryman-agent/tools/base"
 	toolcore "ferryman-agent/tools/core"
 	mcptools "ferryman-agent/tools/mcp"
 )
@@ -15,11 +15,11 @@ import (
 type toolsetConfig struct {
 	permissions permission.Service
 	history     history.Service
-	lspClients  map[string]*agentlsp.Client
 	ctx         context.Context
 	sessions    session.Service
 	messages    message.Service
 	tools       []toolcore.BaseTool
+	fileHooks   []toolcore.FileHook
 	builders    []func(toolsetConfig) []toolcore.BaseTool
 }
 
@@ -34,12 +34,6 @@ func WithPermissions(permissions permission.Service) Option {
 func WithHistory(historySvc history.Service) Option {
 	return func(cfg *toolsetConfig) {
 		cfg.history = historySvc
-	}
-}
-
-func WithLSPClients(lspClients map[string]*agentlsp.Client) Option {
-	return func(cfg *toolsetConfig) {
-		cfg.lspClients = lspClients
 	}
 }
 
@@ -67,6 +61,30 @@ func WithBaseTools(baseTools ...toolcore.BaseTool) Option {
 	}
 }
 
+func WithFileHooks(hooks ...toolcore.FileHook) Option {
+	return func(cfg *toolsetConfig) {
+		cfg.fileHooks = append(cfg.fileHooks, hooks...)
+	}
+}
+
+func WithBaseFileTools() Option {
+	return func(cfg *toolsetConfig) {
+		cfg.builders = append(cfg.builders, func(cfg toolsetConfig) []toolcore.BaseTool {
+			baseTools := []toolcore.BaseTool{
+				basetools.NewViewTool(cfg.fileHooks...),
+			}
+			if cfg.permissions != nil && cfg.history != nil {
+				baseTools = append(baseTools,
+					basetools.NewEditTool(cfg.permissions, cfg.history, cfg.fileHooks...),
+					basetools.NewWriteTool(cfg.permissions, cfg.history, cfg.fileHooks...),
+					basetools.NewPatchTool(cfg.permissions, cfg.history, cfg.fileHooks...),
+				)
+			}
+			return baseTools
+		})
+	}
+}
+
 func WithMCPTools() Option {
 	return func(cfg *toolsetConfig) {
 		cfg.builders = append(cfg.builders, func(cfg toolsetConfig) []toolcore.BaseTool {
@@ -86,7 +104,7 @@ func WithAgentTools() Option {
 				return nil
 			}
 			return []toolcore.BaseTool{
-				agenttool.New(cfg.sessions, cfg.messages, cfg.lspClients),
+				agenttool.New(cfg.sessions, cfg.messages),
 			}
 		})
 	}

@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"strings"
 
-	"ferryman-agent/infra/logging"
 	"ferryman-agent/llm/models"
+	"ferryman-agent/logging"
 	"github.com/spf13/viper"
 )
 
@@ -45,9 +45,10 @@ const (
 
 // Agent defines configuration for different LLM models and their token limits.
 type Agent struct {
-	Model           models.ModelID `json:"model"`
-	MaxTokens       int64          `json:"maxTokens"`
-	ReasoningEffort string         `json:"reasoningEffort"` // For openai models low,medium,heigh
+	Model           models.ModelID       `json:"model"`
+	Provider        models.ModelProvider `json:"provider,omitempty"`
+	MaxTokens       int64                `json:"maxTokens"`
+	ReasoningEffort string               `json:"reasoningEffort"` // For openai models low,medium,heigh
 }
 
 // Provider defines configuration for an LLM provider.
@@ -61,19 +62,6 @@ type Data struct {
 	Directory string `json:"directory,omitempty"`
 }
 
-// LSPConfig defines configuration for Language Server Protocol integration.
-type LSPConfig struct {
-	Disabled bool     `json:"enabled"`
-	Command  string   `json:"command"`
-	Args     []string `json:"args"`
-	Options  any      `json:"options"`
-}
-
-// TUIConfig defines the configuration for the Terminal User Interface.
-type TUIConfig struct {
-	Theme string `json:"theme,omitempty"`
-}
-
 // ShellConfig defines the configuration for the shell used by the bash tool.
 type ShellConfig struct {
 	Path string   `json:"path,omitempty"`
@@ -82,18 +70,16 @@ type ShellConfig struct {
 
 // Config is the main configuration structure for the application.
 type Config struct {
-	Data         Data                              `json:"data"`
-	WorkingDir   string                            `json:"wd,omitempty"`
-	MCPServers   map[string]MCPServer              `json:"mcpServers,omitempty"`
-	Providers    map[models.ModelProvider]Provider `json:"providers,omitempty"`
-	LSP          map[string]LSPConfig              `json:"lsp,omitempty"`
-	Agents       map[AgentName]Agent               `json:"agents,omitempty"`
-	Debug        bool                              `json:"debug,omitempty"`
-	DebugLSP     bool                              `json:"debugLSP,omitempty"`
-	ContextPaths []string                          `json:"contextPaths,omitempty"`
-	TUI          TUIConfig                         `json:"tui"`
-	Shell        ShellConfig                       `json:"shell,omitempty"`
-	AutoCompact  bool                              `json:"autoCompact,omitempty"`
+	Data             Data                              `json:"data"`
+	WorkingDir       string                            `json:"wd,omitempty"`
+	MCPServers       map[string]MCPServer              `json:"mcpServers,omitempty"`
+	Providers        map[models.ModelProvider]Provider `json:"providers,omitempty"`
+	Agents           map[AgentName]Agent               `json:"agents,omitempty"`
+	Debug            bool                              `json:"debug,omitempty"`
+	ContextPaths     []string                          `json:"contextPaths,omitempty"`
+	Shell            ShellConfig                       `json:"shell,omitempty"`
+	AutoCompact      bool                              `json:"autoCompact,omitempty"`
+	PromptConfigPath string                            `json:"promptConfigPath,omitempty"`
 }
 
 // Application constants
@@ -134,7 +120,6 @@ func Load(workingDir string, debug bool) (*Config, error) {
 		WorkingDir: workingDir,
 		MCPServers: make(map[string]MCPServer),
 		Providers:  make(map[models.ModelProvider]Provider),
-		LSP:        make(map[string]LSPConfig),
 	}
 
 	configureViper()
@@ -230,7 +215,6 @@ func configureViper() {
 func setDefaults(debug bool) {
 	viper.SetDefault("data.directory", defaultDataDirectory)
 	viper.SetDefault("contextPaths", defaultContextPaths)
-	viper.SetDefault("tui.theme", "opencode")
 	viper.SetDefault("autoCompact", true)
 
 	// Set default shell from environment or fallback to /bin/bash
@@ -471,33 +455,29 @@ func applyDefaultValues() {
 	}
 }
 
-// It validates model IDs and providers, ensuring they are supported.
+// It validates provider availability and applies model-related defaults.
 func validateAgent(cfg *Config, name AgentName, agent Agent) error {
-	// Check if model exists
-	// TODO:	If a copilot model is specified, but model is not found,
-	// 		 	it might be new model. The https://api.githubcopilot.com/models
-	// 		 	endpoint should be queried to validate if the model is supported.
-	model, modelExists := models.SupportedModels[agent.Model]
-	if !modelExists {
-		logging.Warn("unsupported model configured, reverting to default",
-			"agent", name,
-			"configured_model", agent.Model)
-
-		// Set default model based on available providers
-		if setDefaultModelForAgent(name) {
-			logging.Info("set default model for agent", "agent", name, "model", cfg.Agents[name].Model)
-		} else {
-			return fmt.Errorf("no valid provider available for agent %s", name)
-		}
-		return nil
+	provider := agent.Provider
+	if provider == "" {
+		provider = models.ProviderForModel(agent.Model)
 	}
+	if provider == "" {
+		provider = firstConfiguredProvider(cfg)
+	}
+	if provider == "" {
+		if setDefaultModelForAgent(name) {
+			return nil
+		}
+		return fmt.Errorf("no provider configured for agent %s", name)
+	}
+	agent.Provider = provider
+	updatedAgent := cfg.Agents[name]
+	updatedAgent.Provider = provider
+	cfg.Agents[name] = updatedAgent
 
-	// Check if provider for the model is configured
-	provider := model.Provider
 	providerCfg, providerExists := cfg.Providers[provider]
 
 	if !providerExists {
-		// Provider not configured, check if we have environment variables
 		apiKey := getProviderAPIKey(provider)
 		if apiKey == "" {
 			logging.Warn("provider not configured for model, reverting to default",
@@ -519,7 +499,6 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 			logging.Info("added provider from environment", "provider", provider)
 		}
 	} else if providerCfg.Disabled || providerCfg.APIKey == "" {
-		// Provider is disabled or has no API key
 		logging.Warn("provider is disabled or has no API key, reverting to default",
 			"agent", name,
 			"model", agent.Model,
@@ -533,76 +512,48 @@ func validateAgent(cfg *Config, name AgentName, agent Agent) error {
 		}
 	}
 
-	// Validate max tokens
 	if agent.MaxTokens <= 0 {
 		logging.Warn("invalid max tokens, setting to default",
 			"agent", name,
 			"model", agent.Model,
 			"max_tokens", agent.MaxTokens)
 
-		// Update the agent with default max tokens
 		updatedAgent := cfg.Agents[name]
-		if model.DefaultMaxTokens > 0 {
-			updatedAgent.MaxTokens = model.DefaultMaxTokens
-		} else {
+		updatedAgent.MaxTokens = models.ResolveModel(provider, agent.Model).DefaultMaxTokens
+		if updatedAgent.MaxTokens <= 0 {
 			updatedAgent.MaxTokens = MaxTokensFallbackDefault
 		}
 		cfg.Agents[name] = updatedAgent
-	} else if model.ContextWindow > 0 && agent.MaxTokens > model.ContextWindow/2 {
-		// Ensure max tokens doesn't exceed half the context window (reasonable limit)
-		logging.Warn("max tokens exceeds half the context window, adjusting",
-			"agent", name,
-			"model", agent.Model,
-			"max_tokens", agent.MaxTokens,
-			"context_window", model.ContextWindow)
-
-		// Update the agent with adjusted max tokens
-		updatedAgent := cfg.Agents[name]
-		updatedAgent.MaxTokens = model.ContextWindow / 2
-		cfg.Agents[name] = updatedAgent
 	}
 
-	// Validate reasoning effort for models that support reasoning
-	if model.CanReason && provider == models.ProviderOpenAI || provider == models.ProviderLocal {
-		if agent.ReasoningEffort == "" {
-			// Set default reasoning effort for models that support it
-			logging.Info("setting default reasoning effort for model that supports reasoning",
+	if agent.ReasoningEffort != "" {
+		effort := strings.ToLower(agent.ReasoningEffort)
+		if effort != "low" && effort != "medium" && effort != "high" {
+			logging.Warn("invalid reasoning effort, setting to medium",
 				"agent", name,
-				"model", agent.Model)
+				"model", agent.Model,
+				"reasoning_effort", agent.ReasoningEffort)
 
-			// Update the agent with default reasoning effort
 			updatedAgent := cfg.Agents[name]
 			updatedAgent.ReasoningEffort = "medium"
 			cfg.Agents[name] = updatedAgent
-		} else {
-			// Check if reasoning effort is valid (low, medium, high)
-			effort := strings.ToLower(agent.ReasoningEffort)
-			if effort != "low" && effort != "medium" && effort != "high" {
-				logging.Warn("invalid reasoning effort, setting to medium",
-					"agent", name,
-					"model", agent.Model,
-					"reasoning_effort", agent.ReasoningEffort)
-
-				// Update the agent with valid reasoning effort
-				updatedAgent := cfg.Agents[name]
-				updatedAgent.ReasoningEffort = "medium"
-				cfg.Agents[name] = updatedAgent
-			}
 		}
-	} else if !model.CanReason && agent.ReasoningEffort != "" {
-		// Model doesn't support reasoning but reasoning effort is set
-		logging.Warn("model doesn't support reasoning but reasoning effort is set, ignoring",
-			"agent", name,
-			"model", agent.Model,
-			"reasoning_effort", agent.ReasoningEffort)
-
-		// Update the agent to remove reasoning effort
+	} else if provider == models.ProviderOpenAI || provider == models.ProviderLocal {
 		updatedAgent := cfg.Agents[name]
-		updatedAgent.ReasoningEffort = ""
+		updatedAgent.ReasoningEffort = "medium"
 		cfg.Agents[name] = updatedAgent
 	}
 
 	return nil
+}
+
+func firstConfiguredProvider(cfg *Config) models.ModelProvider {
+	for provider, providerCfg := range cfg.Providers {
+		if !providerCfg.Disabled {
+			return provider
+		}
+	}
+	return ""
 }
 
 // Validate checks if the configuration is valid and applies defaults where needed.
@@ -625,15 +576,6 @@ func Validate() error {
 			logging.Warn("provider has no API key, marking as disabled", "provider", provider)
 			providerCfg.Disabled = true
 			cfg.Providers[provider] = providerCfg
-		}
-	}
-
-	// Validate LSP configurations
-	for language, lspConfig := range cfg.LSP {
-		if lspConfig.Command == "" && !lspConfig.Disabled {
-			logging.Warn("LSP configuration has no command, marking as disabled", "language", language)
-			lspConfig.Disabled = true
-			cfg.LSP[language] = lspConfig
 		}
 	}
 
@@ -677,6 +619,7 @@ func setDefaultModelForAgent(agent AgentName) bool {
 
 		cfg.Agents[agent] = Agent{
 			Model:     models.CopilotGPT4o,
+			Provider:  models.ProviderCopilot,
 			MaxTokens: maxTokens,
 		}
 		return true
@@ -689,6 +632,7 @@ func setDefaultModelForAgent(agent AgentName) bool {
 		}
 		cfg.Agents[agent] = Agent{
 			Model:     models.Claude37Sonnet,
+			Provider:  models.ProviderAnthropic,
 			MaxTokens: maxTokens,
 		}
 		return true
@@ -710,12 +654,13 @@ func setDefaultModelForAgent(agent AgentName) bool {
 		}
 
 		// Check if model supports reasoning
-		if modelInfo, ok := models.SupportedModels[model]; ok && modelInfo.CanReason {
+		if models.ResolveModel(models.ProviderOpenAI, model).CanReason {
 			reasoningEffort = "medium"
 		}
 
 		cfg.Agents[agent] = Agent{
 			Model:           model,
+			Provider:        models.ProviderOpenAI,
 			MaxTokens:       maxTokens,
 			ReasoningEffort: reasoningEffort,
 		}
@@ -738,12 +683,13 @@ func setDefaultModelForAgent(agent AgentName) bool {
 		}
 
 		// Check if model supports reasoning
-		if modelInfo, ok := models.SupportedModels[model]; ok && modelInfo.CanReason {
+		if models.ResolveModel(models.ProviderOpenRouter, model).CanReason {
 			reasoningEffort = "medium"
 		}
 
 		cfg.Agents[agent] = Agent{
 			Model:           model,
+			Provider:        models.ProviderOpenRouter,
 			MaxTokens:       maxTokens,
 			ReasoningEffort: reasoningEffort,
 		}
@@ -763,6 +709,7 @@ func setDefaultModelForAgent(agent AgentName) bool {
 
 		cfg.Agents[agent] = Agent{
 			Model:     model,
+			Provider:  models.ProviderGemini,
 			MaxTokens: maxTokens,
 		}
 		return true
@@ -776,6 +723,7 @@ func setDefaultModelForAgent(agent AgentName) bool {
 
 		cfg.Agents[agent] = Agent{
 			Model:     models.QWENQwq,
+			Provider:  models.ProviderGROQ,
 			MaxTokens: maxTokens,
 		}
 		return true
@@ -789,6 +737,7 @@ func setDefaultModelForAgent(agent AgentName) bool {
 
 		cfg.Agents[agent] = Agent{
 			Model:           models.BedrockClaude37Sonnet,
+			Provider:        models.ProviderBedrock,
 			MaxTokens:       maxTokens,
 			ReasoningEffort: "medium", // Claude models support reasoning
 		}
@@ -808,6 +757,7 @@ func setDefaultModelForAgent(agent AgentName) bool {
 
 		cfg.Agents[agent] = Agent{
 			Model:     model,
+			Provider:  models.ProviderVertexAI,
 			MaxTokens: maxTokens,
 		}
 		return true
@@ -883,18 +833,23 @@ func UpdateAgentModel(agentName AgentName, modelID models.ModelID) error {
 
 	existingAgentCfg := cfg.Agents[agentName]
 
-	model, ok := models.SupportedModels[modelID]
-	if !ok {
-		return fmt.Errorf("model %s not supported", modelID)
+	provider := existingAgentCfg.Provider
+	if provider == "" {
+		provider = models.ProviderForModel(modelID)
+	}
+	if provider == "" {
+		provider = firstConfiguredProvider(cfg)
 	}
 
 	maxTokens := existingAgentCfg.MaxTokens
+	model := models.ResolveModel(provider, modelID)
 	if model.DefaultMaxTokens > 0 {
 		maxTokens = model.DefaultMaxTokens
 	}
 
 	newAgentCfg := Agent{
 		Model:           modelID,
+		Provider:        provider,
 		MaxTokens:       maxTokens,
 		ReasoningEffort: existingAgentCfg.ReasoningEffort,
 	}
@@ -911,21 +866,6 @@ func UpdateAgentModel(agentName AgentName, modelID models.ModelID) error {
 			config.Agents = make(map[AgentName]Agent)
 		}
 		config.Agents[agentName] = newAgentCfg
-	})
-}
-
-// UpdateTheme updates the theme in the configuration and writes it to the config file.
-func UpdateTheme(themeName string) error {
-	if cfg == nil {
-		return fmt.Errorf("config not loaded")
-	}
-
-	// Update the in-memory config
-	cfg.TUI.Theme = themeName
-
-	// Update the file config
-	return updateCfgFile(func(config *Config) {
-		config.TUI.Theme = themeName
 	})
 }
 

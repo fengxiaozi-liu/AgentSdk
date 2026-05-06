@@ -1,7 +1,5 @@
 package models
 
-import "maps"
-
 type (
 	ModelID       string
 	ModelProvider string
@@ -34,45 +32,7 @@ const (
 	ProviderMock ModelProvider = "__mock"
 )
 
-// Providers in order of popularity
-var ProviderPopularity = map[ModelProvider]int{
-	ProviderCopilot:    1,
-	ProviderAnthropic:  2,
-	ProviderOpenAI:     3,
-	ProviderGemini:     4,
-	ProviderGROQ:       5,
-	ProviderOpenRouter: 6,
-	ProviderBedrock:    7,
-	ProviderAzure:      8,
-	ProviderVertexAI:   9,
-}
-
-var SupportedModels = map[ModelID]Model{
-	//
-	// // GEMINI
-	// GEMINI25: {
-	// 	ID:                 GEMINI25,
-	// 	Name:               "Gemini 2.5 Pro",
-	// 	Provider:           ProviderGemini,
-	// 	APIModel:           "gemini-2.5-pro-exp-03-25",
-	// 	CostPer1MIn:        0,
-	// 	CostPer1MInCached:  0,
-	// 	CostPer1MOutCached: 0,
-	// 	CostPer1MOut:       0,
-	// },
-	//
-	// GRMINI20Flash: {
-	// 	ID:                 GRMINI20Flash,
-	// 	Name:               "Gemini 2.0 Flash",
-	// 	Provider:           ProviderGemini,
-	// 	APIModel:           "gemini-2.0-flash",
-	// 	CostPer1MIn:        0.1,
-	// 	CostPer1MInCached:  0,
-	// 	CostPer1MOutCached: 0.025,
-	// 	CostPer1MOut:       0.4,
-	// },
-	//
-	// // Bedrock
+var knownModels = map[ModelID]Model{
 	BedrockClaude37Sonnet: {
 		ID:                 BedrockClaude37Sonnet,
 		Name:               "Bedrock: Claude 3.7 Sonnet",
@@ -86,13 +46,42 @@ var SupportedModels = map[ModelID]Model{
 }
 
 func init() {
-	maps.Copy(SupportedModels, AnthropicModels)
-	maps.Copy(SupportedModels, OpenAIModels)
-	maps.Copy(SupportedModels, GeminiModels)
-	maps.Copy(SupportedModels, GroqModels)
-	maps.Copy(SupportedModels, AzureModels)
-	maps.Copy(SupportedModels, OpenRouterModels)
-	maps.Copy(SupportedModels, XAIModels)
-	maps.Copy(SupportedModels, VertexAIGeminiModels)
-	maps.Copy(SupportedModels, CopilotModels)
+	registerKnownModels(AnthropicModels)
+	registerKnownModels(OpenAIModels)
+	registerKnownModels(GeminiModels)
+	registerKnownModels(GroqModels)
+	registerKnownModels(AzureModels)
+	registerKnownModels(OpenRouterModels)
+	registerKnownModels(XAIModels)
+	registerKnownModels(VertexAIGeminiModels)
+	registerKnownModels(CopilotModels)
+}
+
+func registerKnownModels(models map[ModelID]Model) {
+	for id, model := range models {
+		knownModels[id] = model
+	}
+}
+
+func ProviderForModel(modelID ModelID) ModelProvider {
+	if model, ok := knownModels[modelID]; ok {
+		return model.Provider
+	}
+	return ""
+}
+
+func ResolveModel(provider ModelProvider, modelID ModelID) Model {
+	if model, ok := knownModels[modelID]; ok {
+		if provider == "" || provider == model.Provider {
+			return model
+		}
+	}
+	return Model{
+		ID:                  modelID,
+		Name:                string(modelID),
+		Provider:            provider,
+		APIModel:            string(modelID),
+		DefaultMaxTokens:    4096,
+		SupportsAttachments: true,
+	}
 }

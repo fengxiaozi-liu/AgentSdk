@@ -2,12 +2,11 @@ package message
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
 
-	agentdb "ferryman-agent/infra/db"
+	"ferryman-agent/data/repo"
 	"ferryman-agent/llm/models"
 	"ferryman-agent/pubsub"
 	"github.com/google/uuid"
@@ -31,13 +30,13 @@ type Service interface {
 
 type service struct {
 	*pubsub.Broker[Message]
-	q agentdb.Querier
+	repo repo.MessageRepo
 }
 
-func NewService(q agentdb.Querier) Service {
+func NewService(messageRepo repo.MessageRepo) Service {
 	return &service{
 		Broker: pubsub.NewBroker[Message](),
-		q:      q,
+		repo:   messageRepo,
 	}
 }
 
@@ -46,7 +45,7 @@ func (s *service) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.q.DeleteMessage(ctx, message.ID); err != nil {
+	if err := s.repo.Delete(ctx, message.ID); err != nil {
 		return err
 	}
 	s.Publish(pubsub.DeletedEvent, message)
@@ -61,12 +60,12 @@ func (s *service) Create(ctx context.Context, sessionID string, params CreateMes
 	if err != nil {
 		return Message{}, err
 	}
-	dbMessage, err := s.q.CreateMessage(ctx, agentdb.CreateMessageParams{
+	dbMessage, err := s.repo.Create(ctx, repo.CreateMessageParams{
 		ID:        uuid.New().String(),
 		SessionID: sessionID,
 		Role:      string(params.Role),
 		Parts:     string(partsJSON),
-		Model:     sql.NullString{String: string(params.Model), Valid: true},
+		Model:     string(params.Model),
 	})
 	if err != nil {
 		return Message{}, err
@@ -99,12 +98,11 @@ func (s *service) Update(ctx context.Context, message Message) error {
 	if err != nil {
 		return err
 	}
-	finishedAt := sql.NullInt64{}
+	finishedAt := int64(0)
 	if f := message.FinishPart(); f != nil {
-		finishedAt.Int64 = f.Time
-		finishedAt.Valid = true
+		finishedAt = f.Time
 	}
-	if err := s.q.UpdateMessage(ctx, agentdb.UpdateMessageParams{
+	if err := s.repo.Update(ctx, repo.UpdateMessageParams{
 		ID:         message.ID,
 		Parts:      string(parts),
 		FinishedAt: finishedAt,
@@ -117,7 +115,7 @@ func (s *service) Update(ctx context.Context, message Message) error {
 }
 
 func (s *service) Get(ctx context.Context, id string) (Message, error) {
-	dbMessage, err := s.q.GetMessage(ctx, id)
+	dbMessage, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return Message{}, err
 	}
@@ -125,7 +123,7 @@ func (s *service) Get(ctx context.Context, id string) (Message, error) {
 }
 
 func (s *service) List(ctx context.Context, sessionID string) ([]Message, error) {
-	dbMessages, err := s.q.ListMessagesBySession(ctx, sessionID)
+	dbMessages, err := s.repo.ListBySession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +137,7 @@ func (s *service) List(ctx context.Context, sessionID string) ([]Message, error)
 	return messages, nil
 }
 
-func (s *service) fromDBItem(item agentdb.Message) (Message, error) {
+func (s *service) fromDBItem(item repo.Message) (Message, error) {
 	parts, err := unmarshallParts([]byte(item.Parts))
 	if err != nil {
 		return Message{}, err
@@ -149,7 +147,7 @@ func (s *service) fromDBItem(item agentdb.Message) (Message, error) {
 		SessionID: item.SessionID,
 		Role:      MessageRole(item.Role),
 		Parts:     parts,
-		Model:     models.ModelID(item.Model.String),
+		Model:     models.ModelID(item.Model),
 		CreatedAt: item.CreatedAt,
 		UpdatedAt: item.UpdatedAt,
 	}, nil

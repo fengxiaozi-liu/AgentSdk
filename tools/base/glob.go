@@ -12,8 +12,8 @@ import (
 	"strings"
 
 	"ferryman-agent/config"
-	"ferryman-agent/infra/fileutil"
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
+	"ferryman-agent/utils/fileutil"
 )
 
 const (

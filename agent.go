@@ -10,9 +10,9 @@ import (
 
 	internalconfig "ferryman-agent/config"
 	sdkconfig "ferryman-agent/config"
-	"ferryman-agent/infra/logging"
 	"ferryman-agent/llm/models"
 	"ferryman-agent/llm/provider"
+	"ferryman-agent/logging"
 	"ferryman-agent/message"
 	"ferryman-agent/permission"
 	"ferryman-agent/prompt"
@@ -712,10 +712,14 @@ func createAgentProvider(agentName sdkconfig.AgentName) (provider.Provider, erro
 		return nil, fmt.Errorf("agent %s not found", agentName)
 	}
 	// 查看支持模型，这里要更新一下， 所有模型都支持
-	model, ok := models.SupportedModels[agentConfig.Model]
-	if !ok {
-		return nil, fmt.Errorf("model %s not supported", agentConfig.Model)
+	providerName := agentConfig.Provider
+	if providerName == "" {
+		providerName = models.ProviderForModel(agentConfig.Model)
 	}
+	if providerName == "" {
+		return nil, fmt.Errorf("provider is required for model %s", agentConfig.Model)
+	}
+	model := models.ResolveModel(providerName, agentConfig.Model)
 
 	providerCfg, ok := cfg.Providers[model.Provider]
 	if !ok {

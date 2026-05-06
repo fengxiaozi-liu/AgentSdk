@@ -2,9 +2,8 @@ package session
 
 import (
 	"context"
-	"database/sql"
 
-	agentdb "ferryman-agent/infra/db"
+	"ferryman-agent/data/repo"
 	"ferryman-agent/pubsub"
 	"github.com/google/uuid"
 )
@@ -35,15 +34,15 @@ type Service interface {
 
 type service struct {
 	*pubsub.Broker[Session]
-	q agentdb.Querier
+	repo repo.SessionRepo
 }
 
-func NewService(q agentdb.Querier) Service {
-	return &service{Broker: pubsub.NewBroker[Session](), q: q}
+func NewService(sessionRepo repo.SessionRepo) Service {
+	return &service{Broker: pubsub.NewBroker[Session](), repo: sessionRepo}
 }
 
 func (s *service) Create(ctx context.Context, title string) (Session, error) {
-	dbSession, err := s.q.CreateSession(ctx, agentdb.CreateSessionParams{
+	dbSession, err := s.repo.Create(ctx, repo.CreateSessionParams{
 		ID: uuid.New().String(), Title: title,
 	})
 	if err != nil {
@@ -55,9 +54,9 @@ func (s *service) Create(ctx context.Context, title string) (Session, error) {
 }
 
 func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessionID, title string) (Session, error) {
-	dbSession, err := s.q.CreateSession(ctx, agentdb.CreateSessionParams{
+	dbSession, err := s.repo.Create(ctx, repo.CreateSessionParams{
 		ID:              toolCallID,
-		ParentSessionID: sql.NullString{String: parentSessionID, Valid: true},
+		ParentSessionID: parentSessionID,
 		Title:           title,
 	})
 	if err != nil {
@@ -69,9 +68,9 @@ func (s *service) CreateTaskSession(ctx context.Context, toolCallID, parentSessi
 }
 
 func (s *service) CreateTitleSession(ctx context.Context, parentSessionID string) (Session, error) {
-	dbSession, err := s.q.CreateSession(ctx, agentdb.CreateSessionParams{
+	dbSession, err := s.repo.Create(ctx, repo.CreateSessionParams{
 		ID:              "title-" + parentSessionID,
-		ParentSessionID: sql.NullString{String: parentSessionID, Valid: true},
+		ParentSessionID: parentSessionID,
 		Title:           "Generate a title",
 	})
 	if err != nil {
@@ -87,7 +86,7 @@ func (s *service) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.q.DeleteSession(ctx, session.ID); err != nil {
+	if err := s.repo.Delete(ctx, session.ID); err != nil {
 		return err
 	}
 	s.Publish(pubsub.DeletedEvent, session)
@@ -95,7 +94,7 @@ func (s *service) Delete(ctx context.Context, id string) error {
 }
 
 func (s *service) Get(ctx context.Context, id string) (Session, error) {
-	dbSession, err := s.q.GetSessionByID(ctx, id)
+	dbSession, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return Session{}, err
 	}
@@ -103,12 +102,12 @@ func (s *service) Get(ctx context.Context, id string) (Session, error) {
 }
 
 func (s *service) Save(ctx context.Context, session Session) (Session, error) {
-	dbSession, err := s.q.UpdateSession(ctx, agentdb.UpdateSessionParams{
+	dbSession, err := s.repo.Update(ctx, repo.UpdateSessionParams{
 		ID:               session.ID,
 		Title:            session.Title,
 		PromptTokens:     session.PromptTokens,
 		CompletionTokens: session.CompletionTokens,
-		SummaryMessageID: sql.NullString{String: session.SummaryMessageID, Valid: session.SummaryMessageID != ""},
+		SummaryMessageID: session.SummaryMessageID,
 		Cost:             session.Cost,
 	})
 	if err != nil {
@@ -120,7 +119,7 @@ func (s *service) Save(ctx context.Context, session Session) (Session, error) {
 }
 
 func (s *service) List(ctx context.Context) ([]Session, error) {
-	dbSessions, err := s.q.ListSessions(ctx)
+	dbSessions, err := s.repo.ListRoot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -131,15 +130,15 @@ func (s *service) List(ctx context.Context) ([]Session, error) {
 	return sessions, nil
 }
 
-func (s service) fromDBItem(item agentdb.Session) Session {
+func (s service) fromDBItem(item repo.Session) Session {
 	return Session{
 		ID:               item.ID,
-		ParentSessionID:  item.ParentSessionID.String,
+		ParentSessionID:  item.ParentSessionID,
 		Title:            item.Title,
 		MessageCount:     item.MessageCount,
 		PromptTokens:     item.PromptTokens,
 		CompletionTokens: item.CompletionTokens,
-		SummaryMessageID: item.SummaryMessageID.String,
+		SummaryMessageID: item.SummaryMessageID,
 		Cost:             item.Cost,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,

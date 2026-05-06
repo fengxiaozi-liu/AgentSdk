@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	sdkconfig "ferryman-agent/config"
-	agentlsp "ferryman-agent/extensions/lsp"
 	"ferryman-agent/message"
 	"ferryman-agent/session"
 	basetools "ferryman-agent/tools/base"
@@ -15,9 +14,8 @@ import (
 )
 
 type Tool struct {
-	sessions   session.Service
-	messages   message.Service
-	lspClients map[string]*agentlsp.Client
+	sessions session.Service
+	messages message.Service
 }
 
 const (
@@ -65,7 +63,7 @@ func (b *Tool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.ToolRe
 			basetools.NewGrepTool(),
 			basetools.NewLsTool(),
 			basetools.NewSourcegraphTool(),
-			basetools.NewViewTool(b.lspClients),
+			basetools.NewViewTool(),
 		},
 	)
 	if err != nil {
@@ -112,11 +110,9 @@ func (b *Tool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.ToolRe
 func New(
 	sessions session.Service,
 	messages message.Service,
-	lspClients map[string]*agentlsp.Client,
 ) toolcore.BaseTool {
 	return &Tool{
-		sessions:   sessions,
-		messages:   messages,
-		lspClients: lspClients,
+		sessions: sessions,
+		messages: messages,
 	}
 }

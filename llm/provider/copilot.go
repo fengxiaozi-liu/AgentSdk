@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"ferryman-agent/config"
-	"ferryman-agent/infra/logging"
 	"ferryman-agent/llm/models"
+	"ferryman-agent/logging"
 	"ferryman-agent/message"
 	toolcore "ferryman-agent/tools/core"
 	"github.com/openai/openai-go"

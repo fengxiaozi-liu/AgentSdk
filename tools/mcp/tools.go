@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"ferryman-agent/config"
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
 	"ferryman-agent/permission"
 	toolcore "ferryman-agent/tools/core"
 

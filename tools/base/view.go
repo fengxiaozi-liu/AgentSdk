@@ -11,8 +11,7 @@ import (
 	"strings"
 
 	"ferryman-agent/config"
-	"ferryman-agent/extensions/lsp"
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
 	"ferryman-agent/tools/base/internal/support"
 	toolcore "ferryman-agent/tools/core"
 )
@@ -24,7 +23,7 @@ type ViewParams struct {
 }
 
 type viewTool struct {
-	lspClients map[string]*lsp.Client
+	hooks *toolcore.FileHookDispatcher
 }
 
 type ViewResponseMetadata struct {
@@ -69,9 +68,9 @@ TIPS:
 - When viewing large files, use the offset parameter to read specific sections`
 )
 
-func NewViewTool(lspClients map[string]*lsp.Client) toolcore.BaseTool {
+func NewViewTool(hooks ...toolcore.FileHook) toolcore.BaseTool {
 	return &viewTool{
-		lspClients,
+		hooks: toolcore.NewFileHookDispatcher(hooks...),
 	}
 }
 
@@ -176,7 +175,6 @@ func (v *viewTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 		return toolcore.ToolResponse{}, fmt.Errorf("error reading file: %w", err)
 	}
 
-	notifyLspOpenFile(ctx, filePath, v.lspClients)
 	output := "<file>\n"
 	// Format the output with line numbers
 	output += addLineNumbers(content, params.Offset+1)
@@ -187,15 +185,24 @@ func (v *viewTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 			params.Offset+len(strings.Split(content, "\n")))
 	}
 	output += "\n</file>\n"
-	output += getDiagnostics(filePath, v.lspClients)
 	support.RecordFileRead(filePath)
-	return toolcore.WithResponseMetadata(
+	sessionID, messageID := toolcore.GetContextValues(ctx)
+	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse(output),
 		ViewResponseMetadata{
 			FilePath: filePath,
 			Content:  content,
 		},
-	), nil
+	)
+	return toolcore.WithHookResults(response, v.hooks.Dispatch(ctx, toolcore.FileEvent{
+		Type:       toolcore.FileViewed,
+		ToolName:   ViewToolName,
+		ToolCallID: call.ID,
+		SessionID:  sessionID,
+		MessageID:  messageID,
+		Path:       filePath,
+		Content:    content,
+	})), nil
 }
 
 func addLineNumbers(content string, startLine int) string {

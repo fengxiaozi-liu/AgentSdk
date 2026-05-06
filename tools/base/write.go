@@ -10,10 +10,9 @@ import (
 	"time"
 
 	"ferryman-agent/config"
-	"ferryman-agent/extensions/lsp"
 	"ferryman-agent/history"
 	"ferryman-agent/infra/diff"
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
 	"ferryman-agent/permission"
 	"ferryman-agent/tools/base/internal/support"
 	toolcore "ferryman-agent/tools/core"
@@ -30,9 +29,9 @@ type WritePermissionsParams struct {
 }
 
 type writeTool struct {
-	lspClients  map[string]*lsp.Client
 	permissions permission.Service
 	files       history.Service
+	hooks       *toolcore.FileHookDispatcher
 }
 
 type WriteResponseMetadata struct {
@@ -73,11 +72,11 @@ TIPS:
 - Always include descriptive comments when making changes to existing code`
 )
 
-func NewWriteTool(lspClients map[string]*lsp.Client, permissions permission.Service, files history.Service) toolcore.BaseTool {
+func NewWriteTool(permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
 	return &writeTool{
-		lspClients:  lspClients,
 		permissions: permissions,
 		files:       files,
+		hooks:       toolcore.NewFileHookDispatcher(hooks...),
 	}
 }
 
@@ -214,16 +213,29 @@ func (w *writeTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 
 	support.RecordFileWrite(filePath)
 	support.RecordFileRead(filePath)
-	waitForLspDiagnostics(ctx, filePath, w.lspClients)
 
 	result := fmt.Sprintf("File successfully written: %s", filePath)
 	result = fmt.Sprintf("<result>\n%s\n</result>", result)
-	result += getDiagnostics(filePath, w.lspClients)
-	return toolcore.WithResponseMetadata(toolcore.NewTextResponse(result),
+	response := toolcore.WithResponseMetadata(toolcore.NewTextResponse(result),
 		WriteResponseMetadata{
 			Diff:      diff,
 			Additions: additions,
 			Removals:  removals,
 		},
-	), nil
+	)
+	return toolcore.WithHookResults(response, w.hooks.Dispatch(ctx, toolcore.FileEvent{
+		Type:       toolcore.FileWritten,
+		ToolName:   WriteToolName,
+		ToolCallID: call.ID,
+		SessionID:  sessionID,
+		MessageID:  messageID,
+		Path:       filePath,
+		OldContent: oldContent,
+		NewContent: params.Content,
+		Diff:       diff,
+		Metadata: map[string]any{
+			"additions": additions,
+			"removals":  removals,
+		},
+	})), nil
 }

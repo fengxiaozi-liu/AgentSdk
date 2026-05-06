@@ -11,9 +11,8 @@ import (
 	"time"
 
 	"ferryman-agent/config"
-	"ferryman-agent/extensions/lsp"
 	"ferryman-agent/history"
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
 	"ferryman-agent/permission"
 	"ferryman-agent/tools/base/internal/support"
 	toolcore "ferryman-agent/tools/core"
@@ -37,9 +36,9 @@ type EditResponseMetadata struct {
 }
 
 type editTool struct {
-	lspClients  map[string]*lsp.Client
 	permissions permission.Service
 	files       history.Service
+	hooks       *toolcore.FileHookDispatcher
 }
 
 const (
@@ -93,11 +92,11 @@ When making edits:
 Remember: when making multiple file edits in a row to the same file, you should prefer to send all edits in a single message with multiple calls to this tool, rather than multiple messages with a single call each.`
 )
 
-func NewEditTool(lspClients map[string]*lsp.Client, permissions permission.Service, files history.Service) toolcore.BaseTool {
+func NewEditTool(permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
 	return &editTool{
-		lspClients:  lspClients,
 		permissions: permissions,
 		files:       files,
+		hooks:       toolcore.NewFileHookDispatcher(hooks...),
 	}
 }
 
@@ -141,21 +140,14 @@ func (e *editTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 	var response toolcore.ToolResponse
 	var err error
 
-	if params.OldString == "" {
-		response, err = e.createNewFile(ctx, params.FilePath, params.NewString)
-		if err != nil {
-			return response, err
-		}
+	switch {
+	case params.OldString == "":
+		response, err = e.createNewFile(ctx, call.ID, params.FilePath, params.NewString)
+	case params.NewString == "":
+		response, err = e.deleteContent(ctx, call.ID, params.FilePath, params.OldString)
+	default:
+		response, err = e.replaceContent(ctx, call.ID, params.FilePath, params.OldString, params.NewString)
 	}
-
-	if params.NewString == "" {
-		response, err = e.deleteContent(ctx, params.FilePath, params.OldString)
-		if err != nil {
-			return response, err
-		}
-	}
-
-	response, err = e.replaceContent(ctx, params.FilePath, params.OldString, params.NewString)
 	if err != nil {
 		return response, err
 	}
@@ -165,14 +157,12 @@ func (e *editTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 		return response, nil
 	}
 
-	waitForLspDiagnostics(ctx, params.FilePath, e.lspClients)
 	text := fmt.Sprintf("<result>\n%s\n</result>\n", response.Content)
-	text += getDiagnostics(params.FilePath, e.lspClients)
 	response.Content = text
 	return response, nil
 }
 
-func (e *editTool) createNewFile(ctx context.Context, filePath, content string) (toolcore.ToolResponse, error) {
+func (e *editTool) createNewFile(ctx context.Context, toolCallID, filePath, content string) (toolcore.ToolResponse, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err == nil {
 		if fileInfo.IsDir() {
@@ -242,17 +232,31 @@ func (e *editTool) createNewFile(ctx context.Context, filePath, content string) 
 	support.RecordFileWrite(filePath)
 	support.RecordFileRead(filePath)
 
-	return toolcore.WithResponseMetadata(
+	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse("File created: "+filePath),
 		EditResponseMetadata{
 			Diff:      diff,
 			Additions: additions,
 			Removals:  removals,
 		},
-	), nil
+	)
+	return toolcore.WithHookResults(response, e.hooks.Dispatch(ctx, toolcore.FileEvent{
+		Type:       toolcore.FileWritten,
+		ToolName:   EditToolName,
+		ToolCallID: toolCallID,
+		SessionID:  sessionID,
+		MessageID:  messageID,
+		Path:       filePath,
+		NewContent: content,
+		Diff:       diff,
+		Metadata: map[string]any{
+			"additions": additions,
+			"removals":  removals,
+		},
+	})), nil
 }
 
-func (e *editTool) deleteContent(ctx context.Context, filePath, oldString string) (toolcore.ToolResponse, error) {
+func (e *editTool) deleteContent(ctx context.Context, toolCallID, filePath, oldString string) (toolcore.ToolResponse, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -361,17 +365,32 @@ func (e *editTool) deleteContent(ctx context.Context, filePath, oldString string
 	support.RecordFileWrite(filePath)
 	support.RecordFileRead(filePath)
 
-	return toolcore.WithResponseMetadata(
+	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse("Content deleted from file: "+filePath),
 		EditResponseMetadata{
 			Diff:      diff,
 			Additions: additions,
 			Removals:  removals,
 		},
-	), nil
+	)
+	return toolcore.WithHookResults(response, e.hooks.Dispatch(ctx, toolcore.FileEvent{
+		Type:       toolcore.FileEdited,
+		ToolName:   EditToolName,
+		ToolCallID: toolCallID,
+		SessionID:  sessionID,
+		MessageID:  messageID,
+		Path:       filePath,
+		OldContent: oldContent,
+		NewContent: newContent,
+		Diff:       diff,
+		Metadata: map[string]any{
+			"additions": additions,
+			"removals":  removals,
+		},
+	})), nil
 }
 
-func (e *editTool) replaceContent(ctx context.Context, filePath, oldString, newString string) (toolcore.ToolResponse, error) {
+func (e *editTool) replaceContent(ctx context.Context, toolCallID, filePath, oldString, newString string) (toolcore.ToolResponse, error) {
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -481,11 +500,26 @@ func (e *editTool) replaceContent(ctx context.Context, filePath, oldString, newS
 	support.RecordFileWrite(filePath)
 	support.RecordFileRead(filePath)
 
-	return toolcore.WithResponseMetadata(
+	response := toolcore.WithResponseMetadata(
 		toolcore.NewTextResponse("Content replaced in file: "+filePath),
 		EditResponseMetadata{
 			Diff:      diff,
 			Additions: additions,
 			Removals:  removals,
-		}), nil
+		})
+	return toolcore.WithHookResults(response, e.hooks.Dispatch(ctx, toolcore.FileEvent{
+		Type:       toolcore.FileEdited,
+		ToolName:   EditToolName,
+		ToolCallID: toolCallID,
+		SessionID:  sessionID,
+		MessageID:  messageID,
+		Path:       filePath,
+		OldContent: oldContent,
+		NewContent: newContent,
+		Diff:       diff,
+		Metadata: map[string]any{
+			"additions": additions,
+			"removals":  removals,
+		},
+	})), nil
 }

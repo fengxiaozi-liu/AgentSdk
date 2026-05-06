@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"ferryman-agent/infra/logging"
+	"ferryman-agent/logging"
 	"google.golang.org/genai"
 )
 
