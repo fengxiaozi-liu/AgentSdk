@@ -7,10 +7,11 @@ import (
 type AgentOption func(*agentOptions)
 
 type agentOptions struct {
-	tools           []toolcore.BaseTool
-	enableAgentTool bool
-	enableMcpTool   bool
-	promptKey       string
+	tools               []toolcore.BaseTool
+	enableAgentTool     bool
+	enableMcpTool       bool
+	enableWorkSpaceTool bool
+	promptKey           string
 }
 
 func WithTools(tools ...toolcore.BaseTool) AgentOption {
@@ -22,6 +23,12 @@ func WithTools(tools ...toolcore.BaseTool) AgentOption {
 func WithAgentTool() AgentOption {
 	return func(opts *agentOptions) {
 		opts.enableAgentTool = true
+	}
+}
+
+func WithWorkSpaceTool() AgentOption {
+	return func(opts *agentOptions) {
+		opts.enableWorkSpaceTool = true
 	}
 }
 

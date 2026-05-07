@@ -7,7 +7,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/google/wire"
 )
+
+var ProviderSet = wire.NewSet(NewService)
 
 var (
 	ErrPromptKeyNotFound   = errors.New("prompt key not found")

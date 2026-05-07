@@ -9,6 +9,7 @@ import (
 	"time"
 
 	mcptools "ferryman-agent/internal/capability/mcp"
+	workspace "ferryman-agent/internal/capability/workspace"
 	sdkconfig "ferryman-agent/internal/config"
 	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/data/llm/provider"
@@ -80,22 +81,46 @@ func MainAgent(cfg sdkconfig.Config, opts ...AgentOption) (Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	agentOpts := applyAgentOptions(opts...)
-	if agentOpts.enableMcpTool {
-		opts = append(opts, WithTools(mcptools.GetMcpTools(context.Background(), container.Permissions)...))
-	}
 	return NewAgent(
 		*runtimeCfg,
 		container.Sessions,
 		container.Messages,
 		container.History,
 		container.Prompt,
+		container.Permissions,
+		container.Workspace,
 		opts...,
 	)
 }
 
-func NewAgent(cfg sdkconfig.Config, sessions session.Service, messages message.Service, history history.Service, prompts prompt.Service, opts ...AgentOption) (Service, error) {
+func NewAgent(
+	cfg sdkconfig.Config,
+	sessions session.Service,
+	messages message.Service,
+	history history.Service,
+	prompts prompt.Service,
+	permissions permission.Service,
+	ws workspace.Workspace,
+	opts ...AgentOption,
+) (Service, error) {
 	agentOpts := applyAgentOptions(opts...)
+	if agentOpts.enableWorkSpaceTool {
+		agentOpts.tools = append(agentOpts.tools,
+			workspace.NewGlobTool(ws),
+			workspace.NewGrepTool(ws),
+			workspace.NewLsTool(ws),
+			workspace.NewSourcegraphTool(),
+			workspace.NewViewTool(ws),
+			workspace.NewEditTool(ws, permissions, history),
+			workspace.NewWriteTool(ws, permissions, history),
+			workspace.NewPatchTool(ws, permissions, history),
+			workspace.NewBashTool(ws, permissions),
+			workspace.NewFetchTool(ws, permissions),
+		)
+	}
+	if agentOpts.enableMcpTool {
+		agentOpts.tools = append(agentOpts.tools, mcptools.GetMcpTools(context.Background(), permissions)...)
+	}
 	if agentOpts.enableAgentTool {
 		agentOpts.tools = append(agentOpts.tools, NewAgentTool(cfg, sessions, messages, prompts))
 	}

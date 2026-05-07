@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"context"
-	mcptools "ferryman-agent/internal/capability/mcp"
 	workspace "ferryman-agent/internal/capability/workspace"
 	datadb "ferryman-agent/internal/data/db"
 	"ferryman-agent/internal/data/repo"
@@ -11,8 +9,11 @@ import (
 	"ferryman-agent/internal/memory/session"
 	"ferryman-agent/internal/prompt"
 	"ferryman-agent/internal/security/permission"
-	toolcore "ferryman-agent/internal/tools"
+
+	"github.com/google/wire"
 )
+
+var ProviderSet = wire.NewSet(NewContainer)
 
 type Container struct {
 	DB          *datadb.DbClient
@@ -56,23 +57,4 @@ func NewContainer(
 		MessageRepo: messageRepo,
 		HistoryRepo: historyRepo,
 	}, nil
-}
-
-func (c *Container) DefaultTools() []toolcore.BaseTool {
-	baseTools := []toolcore.BaseTool{
-		workspace.NewGlobTool(c.Workspace),
-		workspace.NewGrepTool(c.Workspace),
-		workspace.NewLsTool(c.Workspace),
-		workspace.NewSourcegraphTool(),
-		workspace.NewViewTool(c.Workspace),
-		workspace.NewEditTool(c.Workspace, c.Permissions, c.History),
-		workspace.NewWriteTool(c.Workspace, c.Permissions, c.History),
-		workspace.NewPatchTool(c.Workspace, c.Permissions, c.History),
-		workspace.NewBashTool(c.Workspace, c.Permissions),
-		workspace.NewFetchTool(c.Workspace, c.Permissions),
-	}
-	return append(
-		baseTools,
-		mcptools.GetMcpTools(context.Background(), c.Permissions)...,
-	)
 }
