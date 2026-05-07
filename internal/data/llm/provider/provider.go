@@ -31,9 +31,9 @@ type ModelConfig struct {
 	ReasoningEffort string         `json:"reasoningEffort,omitempty"`
 }
 
-type baseProvider[C client.Client] struct {
+type baseProvider struct {
 	options client.Options
-	client  C
+	client  client.Client
 }
 
 func CreateProvider(providerCfg ProviderConfig, systemPrompt string, extraOpts ...ProviderClientOption) (Provider, error) {
@@ -99,78 +99,78 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	}
 	switch providerName {
 	case models.ProviderCopilot:
-		return &baseProvider[client.CopilotClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewCopilotClient(clientOptions),
 		}, nil
 	case models.ProviderAnthropic:
-		return &baseProvider[client.AnthropicClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewAnthropicClient(clientOptions),
 		}, nil
 	case models.ProviderOpenAI:
-		return &baseProvider[client.OpenAIClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewOpenAIClient(clientOptions),
 		}, nil
 	case models.ProviderGemini:
-		return &baseProvider[client.GeminiClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewGeminiClient(clientOptions),
 		}, nil
 	case models.ProviderBedrock:
-		return &baseProvider[client.BedrockClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewBedrockClient(clientOptions),
 		}, nil
 	case models.ProviderGROQ:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
-			client.WithOpenAIBaseURL("https://api.groq.com/openai/v1"),
+			client.WithOpenAIDefaultBaseURL("https://api.groq.com/openai/v1"),
 		)
-		return &baseProvider[client.OpenAIClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewOpenAIClient(clientOptions),
 		}, nil
 	case models.ProviderAzure:
-		return &baseProvider[client.AzureClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewAzureClient(clientOptions),
 		}, nil
 	case models.ProviderVertexAI:
-		return &baseProvider[client.VertexAIClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewVertexAIClient(clientOptions),
 		}, nil
 	case models.ProviderOpenRouter:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
-			client.WithOpenAIBaseURL("https://openrouter.ai/api/v1"),
+			client.WithOpenAIDefaultBaseURL("https://openrouter.ai/api/v1"),
 			client.WithOpenAIExtraHeaders(map[string]string{
 				"HTTP-Referer": "ferryer.ai",
 				"X-Title":      "Ferryer",
 			}),
 		)
-		return &baseProvider[client.OpenAIClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewOpenAIClient(clientOptions),
 		}, nil
 	case models.ProviderXAI:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
-			client.WithOpenAIBaseURL("https://api.x.ai/v1"),
+			client.WithOpenAIDefaultBaseURL("https://api.x.ai/v1"),
 		)
-		return &baseProvider[client.OpenAIClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewOpenAIClient(clientOptions),
 		}, nil
 	case models.ProviderLocal:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
-			client.WithOpenAIBaseURL(os.Getenv("LOCAL_ENDPOINT")),
+			client.WithOpenAIDefaultBaseURL(os.Getenv("LOCAL_ENDPOINT")),
 		)
-		return &baseProvider[client.OpenAIClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewOpenAIClient(clientOptions),
 		}, nil
 	case models.ProviderMock:
-		return &baseProvider[client.MockClient]{
+		return &baseProvider{
 			options: clientOptions,
 			client:  client.NewMockClient(clientOptions),
 		}, nil
@@ -178,7 +178,7 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	return nil, fmt.Errorf("provider not supported: %s", providerName)
 }
 
-func (p *baseProvider[C]) cleanMessages(messages []message.Message) (cleaned []message.Message) {
+func (p *baseProvider) cleanMessages(messages []message.Message) (cleaned []message.Message) {
 	for _, msg := range messages {
 		// The message has no content
 		if len(msg.Parts) == 0 {
@@ -189,16 +189,16 @@ func (p *baseProvider[C]) cleanMessages(messages []message.Message) (cleaned []m
 	return
 }
 
-func (p *baseProvider[C]) SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client.Response, error) {
+func (p *baseProvider) SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client.Response, error) {
 	messages = p.cleanMessages(messages)
 	return p.client.Send(ctx, messages, tools)
 }
 
-func (p *baseProvider[C]) Model() models.Model {
+func (p *baseProvider) Model() models.Model {
 	return p.options.Model
 }
 
-func (p *baseProvider[C]) StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client.Event {
+func (p *baseProvider) StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client.Event {
 	messages = p.cleanMessages(messages)
 	return p.client.Stream(ctx, messages, tools)
 }

@@ -396,6 +396,14 @@ func WithOpenAIBaseURL(baseURL string) OpenAIOption {
 	}
 }
 
+func WithOpenAIDefaultBaseURL(baseURL string) OpenAIOption {
+	return func(options *openaiOptions) {
+		if options.baseURL == "" {
+			options.baseURL = baseURL
+		}
+	}
+}
+
 func WithOpenAIExtraHeaders(headers map[string]string) OpenAIOption {
 	return func(options *openaiOptions) {
 		options.extraHeaders = headers
