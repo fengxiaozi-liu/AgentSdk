@@ -8,7 +8,6 @@ import (
 	"io"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/llm/models"
 	"ferryman-agent/logging"
 	"ferryman-agent/message"
@@ -187,8 +186,7 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 
 func (o *openaiClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *ProviderResponse, err error) {
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
-	cfg := config.Get()
-	if cfg.Debug {
+	if o.providerOptions.debug {
 		jsonData, _ := json.Marshal(params)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -244,8 +242,7 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 		IncludeUsage: openai.Bool(true),
 	}
 
-	cfg := config.Get()
-	if cfg.Debug {
+	if o.providerOptions.debug {
 		jsonData, _ := json.Marshal(params)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}

@@ -60,14 +60,17 @@ type agent struct {
 	config            sdkconfig.Config
 	sessions          session.Service //
 	messages          message.Service
+	history           history.Service
 	tools             []toolcore.BaseTool
+	prompt            prompt.Service
+	promptKey         string
 	provider          provider.Provider
 	titleProvider     provider.Provider
 	summarizeProvider provider.Provider
 	activeRequests    sync.Map
 }
 
-func MainAgent(cfg sdkconfig.Config) (Service, error) {
+func MainAgent(cfg sdkconfig.Config, opts ...AgentOption) (Service, error) {
 	runtimeCfg, err := sdkconfig.Use(cfg)
 	if err != nil {
 		return nil, err
@@ -81,31 +84,39 @@ func MainAgent(cfg sdkconfig.Config) (Service, error) {
 		container.Sessions,
 		container.Messages,
 		container.History,
-		container.Tools,
+		container.Prompt,
+		opts...,
 	)
 }
 
-func NewAgent(
-	cfg sdkconfig.Config,
-	sessions session.Service,
-	messages message.Service,
-	_ history.Service,
-	tools []toolcore.BaseTool,
-) (Service, error) {
-	agentProvider, err := createProvider(cfg.Provider, "coder")
+func NewAgent(cfg sdkconfig.Config, sessions session.Service, messages message.Service, history history.Service, prompts prompt.Service, opts ...AgentOption) (Service, error) {
+	agentOpts := applyAgentOptions(opts...)
+	systemPrompt := ""
+	if prompts != nil && strings.TrimSpace(agentOpts.promptKey) != "" {
+		systemPrompt, _ = prompts.GetSystemPrompt(agentOpts.promptKey)
+	}
+	agentProvider, err := provider.CreateProvider(cfg.Provider, systemPrompt, provider.WithDebug(cfg.Debug))
 	if err != nil {
 		return nil, err
 	}
 	var titleProvider provider.Provider
-	if providerConfigured(cfg.TitleProvider) {
-		titleProvider, err = createProvider(cfg.TitleProvider, "title")
+	if provider.Configured(cfg.TitleProvider) {
+		titlePrompt := ""
+		if prompts != nil {
+			titlePrompt, _ = prompts.GetSystemPrompt(prompt.KeyTitle)
+		}
+		titleProvider, err = provider.CreateProvider(cfg.TitleProvider, titlePrompt, provider.WithDebug(cfg.Debug))
 		if err != nil {
 			return nil, err
 		}
 	}
 	var summarizeProvider provider.Provider
-	if providerConfigured(cfg.SummarizerProvider) {
-		summarizeProvider, err = createProvider(cfg.SummarizerProvider, "summarizer")
+	if provider.Configured(cfg.SummarizerProvider) {
+		summarizePrompt := ""
+		if prompts != nil {
+			summarizePrompt, _ = prompts.GetSystemPrompt(prompt.KeySummarizer)
+		}
+		summarizeProvider, err = provider.CreateProvider(cfg.SummarizerProvider, summarizePrompt, provider.WithDebug(cfg.Debug))
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +126,10 @@ func NewAgent(
 		config:            cfg,
 		sessions:          sessions,
 		messages:          messages,
-		tools:             tools,
+		history:           history,
+		tools:             agentOpts.tools,
+		prompt:            prompts,
+		promptKey:         agentOpts.promptKey,
 		provider:          agentProvider,
 		titleProvider:     titleProvider,
 		summarizeProvider: summarizeProvider,
@@ -535,7 +549,11 @@ func (a *agent) Update(profileKey string, modelID models.ModelID) (models.Model,
 		return models.Model{}, fmt.Errorf("model profile %s not supported", profileKey)
 	}
 	a.config.Provider.ModelConfig.Model = modelID
-	provider, err := createProvider(a.config.Provider, "coder")
+	systemPrompt := ""
+	if a.prompt != nil && strings.TrimSpace(a.promptKey) != "" {
+		systemPrompt, _ = a.prompt.GetSystemPrompt(a.promptKey)
+	}
+	provider, err := provider.CreateProvider(a.config.Provider, systemPrompt, provider.WithDebug(a.config.Debug))
 	if err != nil {
 		return models.Model{}, fmt.Errorf("failed to create provider for model %s: %w", modelID, err)
 	}
@@ -714,67 +732,4 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 	}()
 
 	return nil
-}
-
-func providerConfigured(providerCfg sdkconfig.ProviderConfig) bool {
-	return providerCfg.Provider != "" || providerCfg.ModelConfig.Model != ""
-}
-
-func createProvider(providerCfg sdkconfig.ProviderConfig, promptKey string) (provider.Provider, error) {
-	providerName := providerCfg.Provider
-	if providerName == "" {
-		return nil, fmt.Errorf("provider is required for model %s", providerCfg.ModelConfig.Model)
-	}
-	if providerCfg.Disabled {
-		return nil, fmt.Errorf("provider %s is not enabled", providerName)
-	}
-	model := models.ResolveModel(providerName, providerCfg.ModelConfig.Model)
-	maxTokens := model.DefaultMaxTokens
-	if providerCfg.ModelConfig.MaxTokens > 0 {
-		maxTokens = providerCfg.ModelConfig.MaxTokens
-	}
-	systemPrompt := providerCfg.Prompt
-	if strings.TrimSpace(systemPrompt) == "" {
-		resolvedPrompt, err := prompt.ResolveSystemPromptByKey(promptKey)
-		if err != nil {
-			resolvedPrompt = "You are a helpful assistant."
-		}
-		systemPrompt = resolvedPrompt
-	}
-	opts := []provider.ProviderClientOption{
-		provider.WithAPIKey(providerCfg.APIKey),
-		provider.WithModel(model),
-		provider.WithSystemMessage(systemPrompt),
-		provider.WithMaxTokens(maxTokens),
-	}
-	if (providerName == models.ProviderOpenAI || providerName == models.ProviderLocal) && model.CanReason {
-		opts = append(
-			opts,
-			provider.WithOpenAIOptions(
-				provider.WithReasoningEffort(providerCfg.ModelConfig.ReasoningEffort),
-			),
-		)
-	} else if providerName == models.ProviderAnthropic && model.CanReason {
-		opts = append(
-			opts,
-			provider.WithAnthropicOptions(
-				provider.WithAnthropicShouldThinkFn(provider.DefaultShouldThinkFn),
-			),
-		)
-	}
-	if providerCfg.BaseURL != "" {
-		switch providerName {
-		case models.ProviderOpenAI, models.ProviderGROQ, models.ProviderOpenRouter, models.ProviderXAI, models.ProviderLocal:
-			opts = append(opts, provider.WithOpenAIOptions(provider.WithOpenAIBaseURL(providerCfg.BaseURL)))
-		}
-	}
-	agentProvider, err := provider.NewProvider(
-		providerName,
-		opts...,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("could not create provider: %v", err)
-	}
-
-	return agentProvider, nil
 }

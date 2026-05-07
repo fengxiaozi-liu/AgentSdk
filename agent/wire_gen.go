@@ -13,6 +13,7 @@ import (
 	"ferryman-agent/history"
 	"ferryman-agent/message"
 	"ferryman-agent/permission"
+	"ferryman-agent/prompt"
 	"ferryman-agent/session"
 	"ferryman-agent/tools/workspace"
 )
@@ -33,9 +34,13 @@ func wireContainer(cfg *config.Config) (*Container, error) {
 	historyService := history.NewService(historyRepo)
 	string2 := config.WorkingDir(cfg)
 	permissionService := permission.NewServiceWithWorkingDir(string2)
+	promptConfig := config.Prompt(cfg)
+	promptService, err := prompt.NewService(promptConfig)
+	if err != nil {
+		return nil, err
+	}
 	workspaceWorkspace := workspace.NewWorkspace(string2)
-	v := workspace.NewContainerToolset(workspaceWorkspace, permissionService, historyService)
-	container, err := NewContainer(dbClient, service, messageService, historyService, permissionService, workspaceWorkspace, v, sessionRepo, messageRepo, historyRepo)
+	container, err := NewContainer(dbClient, service, messageService, historyService, permissionService, promptService, workspaceWorkspace, sessionRepo, messageRepo, historyRepo)
 	if err != nil {
 		return nil, err
 	}

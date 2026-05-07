@@ -9,6 +9,7 @@ import (
 	"ferryman-agent/history"
 	"ferryman-agent/message"
 	"ferryman-agent/permission"
+	"ferryman-agent/prompt"
 	"ferryman-agent/session"
 	"ferryman-agent/tools/workspace"
 
@@ -23,6 +24,7 @@ func wireContainer(cfg *config.Config) (*Container, error) {
 		session.ProviderSet,
 		message.ProviderSet,
 		history.ProviderSet,
+		prompt.NewService,
 		workspace.ProviderSet,
 		permission.ProviderSet,
 		NewContainer,

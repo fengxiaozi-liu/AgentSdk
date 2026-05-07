@@ -5,6 +5,7 @@ import (
 	"ferryman-agent/history"
 	"ferryman-agent/message"
 	"ferryman-agent/permission"
+	"ferryman-agent/prompt"
 	"ferryman-agent/session"
 	agenttool "ferryman-agent/tools/agent"
 	toolcore "ferryman-agent/tools/core"
@@ -18,6 +19,7 @@ type toolsetConfig struct {
 	ctx         context.Context
 	sessions    session.Service
 	messages    message.Service
+	prompts     prompt.Service
 	workspace   basetools.Workspace
 	tools       []toolcore.BaseTool
 	fileHooks   []toolcore.FileHook
@@ -53,6 +55,12 @@ func WithSessions(sessions session.Service) Option {
 func WithMessages(messages message.Service) Option {
 	return func(cfg *toolsetConfig) {
 		cfg.messages = messages
+	}
+}
+
+func WithPrompts(prompts prompt.Service) Option {
+	return func(cfg *toolsetConfig) {
+		cfg.prompts = prompts
 	}
 }
 
@@ -111,7 +119,7 @@ func WithAgentTools() Option {
 				return nil
 			}
 			return []toolcore.BaseTool{
-				agenttool.New(cfg.sessions, cfg.messages),
+				agenttool.New(cfg.sessions, cfg.messages, cfg.prompts),
 			}
 		})
 	}

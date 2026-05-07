@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/logging"
 	"ferryman-agent/message"
 	toolcore "ferryman-agent/tools/core"
@@ -169,8 +168,7 @@ func (g *geminiClient) send(ctx context.Context, messages []message.Message, too
 	// Convert messages
 	geminiMessages := g.convertMessages(messages)
 
-	cfg := config.Get()
-	if cfg.Debug {
+	if g.providerOptions.debug {
 		jsonData, _ := json.Marshal(geminiMessages)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -257,8 +255,7 @@ func (g *geminiClient) stream(ctx context.Context, messages []message.Message, t
 	// Convert messages
 	geminiMessages := g.convertMessages(messages)
 
-	cfg := config.Get()
-	if cfg.Debug {
+	if g.providerOptions.debug {
 		jsonData, _ := json.Marshal(geminiMessages)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}

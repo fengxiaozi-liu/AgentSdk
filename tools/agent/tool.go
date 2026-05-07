@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"ferryman-agent/message"
+	"ferryman-agent/prompt"
 	"ferryman-agent/session"
 	toolcore "ferryman-agent/tools/core"
 	basetools "ferryman-agent/tools/workspace"
@@ -20,10 +21,11 @@ type Params struct {
 type AgentTool struct {
 	sessions session.Service
 	messages message.Service
+	prompts  prompt.Service
 }
 
-func NewAgentTool(sessions session.Service, messages message.Service) *AgentTool {
-	return &AgentTool{sessions: sessions, messages: messages}
+func NewAgentTool(sessions session.Service, messages message.Service, prompts prompt.Service) *AgentTool {
+	return &AgentTool{sessions: sessions, messages: messages, prompts: prompts}
 }
 
 func (b *AgentTool) Info() toolcore.ToolInfo {
@@ -60,13 +62,15 @@ func (b *AgentTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		b.sessions,
 		b.messages,
 		nil,
-		[]toolcore.BaseTool{
+		b.prompts,
+		agent.WithTools(
 			basetools.NewGlobTool(ws),
 			basetools.NewGrepTool(ws),
 			basetools.NewLsTool(ws),
 			basetools.NewSourcegraphTool(),
 			basetools.NewViewTool(ws),
-		},
+		),
+		agent.WithPromptKey(prompt.KeyTask),
 	)
 	if err != nil {
 		return toolcore.ToolResponse{}, fmt.Errorf("error creating agent: %s", err)
@@ -112,9 +116,11 @@ func (b *AgentTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 func New(
 	sessions session.Service,
 	messages message.Service,
+	prompts prompt.Service,
 ) toolcore.BaseTool {
 	return &AgentTool{
 		sessions: sessions,
 		messages: messages,
+		prompts:  prompts,
 	}
 }

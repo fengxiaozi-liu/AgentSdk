@@ -56,11 +56,26 @@ type Provider interface {
 	Model() models.Model
 }
 
+type ProviderConfig struct {
+	Provider    models.ModelProvider `json:"provider"`
+	APIKey      string               `json:"apiKey"`
+	BaseURL     string               `json:"baseURL"`
+	ModelConfig ModelConfig          `json:"modelConfig"`
+	Disabled    bool                 `json:"disabled"`
+}
+
+type ModelConfig struct {
+	Model           models.ModelID `json:"model"`
+	MaxTokens       int64          `json:"maxTokens,omitempty"`
+	ReasoningEffort string         `json:"reasoningEffort,omitempty"`
+}
+
 type providerClientOptions struct {
 	apiKey           string
 	model            models.Model
 	maxTokens        int64
 	systemMessage    string
+	debug            bool
 	anthropicOptions []AnthropicOption
 	openaiOptions    []OpenAIOption
 	geminiOptions    []GeminiOption
@@ -78,6 +93,62 @@ type ProviderClient interface {
 type baseProvider[C ProviderClient] struct {
 	options providerClientOptions
 	client  C
+}
+
+func CreateProvider(providerCfg ProviderConfig, systemPrompt string, extraOpts ...ProviderClientOption) (Provider, error) {
+	providerName := providerCfg.Provider
+	if providerName == "" {
+		return nil, fmt.Errorf("provider is required for model %s", providerCfg.ModelConfig.Model)
+	}
+	if providerCfg.Disabled {
+		return nil, fmt.Errorf("provider %s is not enabled", providerName)
+	}
+	model := models.ResolveModel(providerName, providerCfg.ModelConfig.Model)
+	maxTokens := model.DefaultMaxTokens
+	if providerCfg.ModelConfig.MaxTokens > 0 {
+		maxTokens = providerCfg.ModelConfig.MaxTokens
+	}
+	opts := []ProviderClientOption{
+		WithAPIKey(providerCfg.APIKey),
+		WithModel(model),
+		WithSystemMessage(systemPrompt),
+		WithMaxTokens(maxTokens),
+	}
+	opts = append(opts, extraOpts...)
+	if (providerName == models.ProviderOpenAI || providerName == models.ProviderLocal) && model.CanReason {
+		opts = append(
+			opts,
+			WithOpenAIOptions(
+				WithReasoningEffort(providerCfg.ModelConfig.ReasoningEffort),
+			),
+		)
+	} else if providerName == models.ProviderAnthropic && model.CanReason {
+		opts = append(
+			opts,
+			WithAnthropicOptions(
+				WithAnthropicShouldThinkFn(DefaultShouldThinkFn),
+			),
+		)
+	}
+	if providerCfg.BaseURL != "" {
+		switch providerName {
+		case models.ProviderOpenAI, models.ProviderGROQ, models.ProviderOpenRouter, models.ProviderXAI, models.ProviderLocal:
+			opts = append(opts, WithOpenAIOptions(WithOpenAIBaseURL(providerCfg.BaseURL)))
+		}
+	}
+	createdProvider, err := NewProvider(
+		providerName,
+		opts...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("could not create provider: %v", err)
+	}
+
+	return createdProvider, nil
+}
+
+func Configured(providerCfg ProviderConfig) bool {
+	return providerCfg.Provider != "" || providerCfg.ModelConfig.Model != ""
 }
 
 func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption) (Provider, error) {
@@ -212,6 +283,12 @@ func WithMaxTokens(maxTokens int64) ProviderClientOption {
 func WithSystemMessage(systemMessage string) ProviderClientOption {
 	return func(options *providerClientOptions) {
 		options.systemMessage = systemMessage
+	}
+}
+
+func WithDebug(debug bool) ProviderClientOption {
+	return func(options *providerClientOptions) {
+		options.debug = debug
 	}
 }
 

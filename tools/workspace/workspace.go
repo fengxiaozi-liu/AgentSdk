@@ -1,20 +1,14 @@
 package workspace
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"ferryman-agent/history"
-	"ferryman-agent/permission"
-	toolcore "ferryman-agent/tools/core"
-	mcptools "ferryman-agent/tools/mcp"
-
 	"github.com/google/wire"
 )
 
-var ProviderSet = wire.NewSet(NewWorkspace, NewContainerToolset)
+var ProviderSet = wire.NewSet(NewWorkspace)
 
 type Workspace struct {
 	Root string
@@ -22,29 +16,6 @@ type Workspace struct {
 
 func NewWorkspace(root string) Workspace {
 	return Workspace{Root: root}
-}
-
-func NewContainerToolset(
-	workspace Workspace,
-	permissions permission.Service,
-	historySvc history.Service,
-) []toolcore.BaseTool {
-	baseTools := []toolcore.BaseTool{
-		NewGlobTool(workspace),
-		NewGrepTool(workspace),
-		NewLsTool(workspace),
-		NewSourcegraphTool(),
-		NewViewTool(workspace),
-		NewEditTool(workspace, permissions, historySvc),
-		NewWriteTool(workspace, permissions, historySvc),
-		NewPatchTool(workspace, permissions, historySvc),
-		NewBashTool(workspace, permissions),
-		NewFetchTool(workspace, permissions),
-	}
-	return append(
-		baseTools,
-		mcptools.GetMcpTools(context.Background(), permissions)...,
-	)
 }
 
 func (w Workspace) Resolve(path string) (string, error) {

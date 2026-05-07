@@ -5,6 +5,7 @@ import (
 
 	datadb "ferryman-agent/data/db"
 	"ferryman-agent/llm/models"
+	"ferryman-agent/llm/provider"
 )
 
 func resetConfigForTest() {
@@ -21,10 +22,10 @@ func TestUseAppliesDefaultsAndWorkingDirectory(t *testing.T) {
 			Type: datadb.DatabaseSQLite,
 			Path: ":memory:",
 		},
-		Provider: ProviderConfig{
+		Provider: provider.ProviderConfig{
 			Provider: models.ProviderOpenAI,
 			APIKey:   "test-key",
-			ModelConfig: ModelConfig{
+			ModelConfig: provider.ModelConfig{
 				Model:           "o4-mini",
 				MaxTokens:       2048,
 				ReasoningEffort: "high",
@@ -56,10 +57,10 @@ func TestUseAllowsConfiguredProviderWithArbitraryModel(t *testing.T) {
 
 	cfg, err := Use(Config{
 		WorkingDir: t.TempDir(),
-		Provider: ProviderConfig{
+		Provider: provider.ProviderConfig{
 			Provider: models.ProviderOpenAI,
 			APIKey:   "test-key",
-			ModelConfig: ModelConfig{
+			ModelConfig: provider.ModelConfig{
 				Model:     "future-model",
 				MaxTokens: 1024,
 			},

@@ -5,12 +5,13 @@ import (
 	"os"
 
 	datadb "ferryman-agent/data/db"
-	"ferryman-agent/llm/models"
+	"ferryman-agent/llm/provider"
+	"ferryman-agent/prompt"
 
 	"github.com/google/wire"
 )
 
-var ProviderSet = wire.NewSet(DatabaseConfig, WorkingDir)
+var ProviderSet = wire.NewSet(DatabaseConfig, WorkingDir, Prompt)
 
 type MCPType string
 
@@ -21,6 +22,8 @@ const (
 	MaxTokensFallbackDefault         = 4096
 )
 
+var cfg *Config
+
 type MCPServer struct {
 	Command string            `json:"command"`
 	Env     []string          `json:"env"`
@@ -30,30 +33,17 @@ type MCPServer struct {
 	Headers map[string]string `json:"headers"`
 }
 
-type ProviderConfig struct {
-	Provider    models.ModelProvider `json:"provider"`
-	APIKey      string               `json:"apiKey"`
-	BaseURL     string               `json:"baseURL"`
-	ModelConfig ModelConfig          `json:"modelConfig"`
-	Prompt      string               `json:"prompt"`
-	Disabled    bool                 `json:"disabled"`
-}
-
-type ModelConfig struct {
-	Model           models.ModelID `json:"model"`
-	MaxTokens       int64          `json:"maxTokens,omitempty"`
-	ReasoningEffort string         `json:"reasoningEffort,omitempty"`
-}
 type Config struct {
-	WorkingDir         string                `json:"workingDir,omitempty"`
-	Database           datadb.DatabaseConfig `json:"database,omitempty"`
-	MCPServers         map[string]MCPServer  `json:"mcpServers,omitempty"`
-	Provider           ProviderConfig        `json:"provider,omitempty"`
-	TitleProvider      ProviderConfig        `json:"titleProvider"`
-	SummarizerProvider ProviderConfig        `json:"summarizerProvider,omitempty"`
-	Debug              bool                  `json:"debug,omitempty"`
-	AutoCompact        bool                  `json:"autoCompact,omitempty"`
-	PromptConfigPath   string                `json:"promptConfigPath,omitempty"`
+	WorkingDir         string                  `json:"workingDir,omitempty"`
+	Database           datadb.DatabaseConfig   `json:"database,omitempty"`
+	MCPServers         map[string]MCPServer    `json:"mcpServers,omitempty"`
+	Provider           provider.ProviderConfig `json:"provider,omitempty"`
+	TitleProvider      provider.ProviderConfig `json:"titleProvider"`
+	SummarizerProvider provider.ProviderConfig `json:"summarizerProvider,omitempty"`
+	Debug              bool                    `json:"debug,omitempty"`
+	AutoCompact        bool                    `json:"autoCompact,omitempty"`
+	Prompt             prompt.PromptConfig     `json:"prompt,omitempty"`
+	PromptConfigPath   string                  `json:"promptConfigPath,omitempty"`
 }
 
 func DatabaseConfig(config *Config) datadb.DatabaseConfig {
@@ -70,11 +60,25 @@ func WorkingDir(config *Config) string {
 	return config.WorkingDir
 }
 
+func Prompt(config *Config) prompt.PromptConfig {
+	if config == nil {
+		return prompt.PromptConfig{}
+	}
+	if config.Prompt.Type != "" {
+		return config.Prompt
+	}
+	if config.PromptConfigPath != "" {
+		return prompt.PromptConfig{
+			Type: prompt.PromptConfigPath,
+			Path: config.PromptConfigPath,
+		}
+	}
+	return prompt.PromptConfig{}
+}
+
 func Current() *Config {
 	return Get()
 }
-
-var cfg *Config
 
 func Use(config Config) (*Config, error) {
 	config = WithDefaults(config)
@@ -121,24 +125,29 @@ func Validate(config Config) error {
 	default:
 		return fmt.Errorf("unsupported database type: %s", config.Database.Type)
 	}
+	switch config.Prompt.Type {
+	case "", prompt.PromptConfigPath, prompt.PromptConfigValue:
+	default:
+		return fmt.Errorf("unsupported prompt config type: %s", config.Prompt.Type)
+	}
 	return nil
 }
 
-func validateOptionalProviderConfig(name string, provider ProviderConfig) error {
-	if provider.Provider == "" && provider.ModelConfig.Model == "" && provider.APIKey == "" && provider.BaseURL == "" && provider.Prompt == "" {
+func validateOptionalProviderConfig(name string, providerCfg provider.ProviderConfig) error {
+	if providerCfg.Provider == "" && providerCfg.ModelConfig.Model == "" && providerCfg.APIKey == "" && providerCfg.BaseURL == "" {
 		return nil
 	}
-	return validateProviderConfig(name, provider)
+	return validateProviderConfig(name, providerCfg)
 }
 
-func validateProviderConfig(name string, provider ProviderConfig) error {
-	if provider.Provider == "" && provider.ModelConfig.Model == "" {
+func validateProviderConfig(name string, providerCfg provider.ProviderConfig) error {
+	if providerCfg.Provider == "" && providerCfg.ModelConfig.Model == "" {
 		return nil
 	}
-	if provider.Provider == "" {
+	if providerCfg.Provider == "" {
 		return fmt.Errorf("%s provider is required", name)
 	}
-	if provider.ModelConfig.Model == "" {
+	if providerCfg.ModelConfig.Model == "" {
 		return fmt.Errorf("%s model is required", name)
 	}
 	return nil

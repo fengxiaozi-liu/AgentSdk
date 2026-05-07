@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/llm/models"
 	"ferryman-agent/logging"
 	"ferryman-agent/message"
@@ -348,10 +347,9 @@ func (c *copilotClient) preparedParams(messages []openai.ChatCompletionMessagePa
 
 func (c *copilotClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *ProviderResponse, err error) {
 	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
-	cfg := config.Get()
 	var sessionId string
 	requestSeqId := (len(messages) + 1) / 2
-	if cfg.Debug {
+	if c.providerOptions.debug {
 		// jsonData, _ := json.Marshal(params)
 		// logging.Debug("Prepared messages", "messages", string(jsonData))
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
@@ -419,10 +417,9 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 		IncludeUsage: openai.Bool(true),
 	}
 
-	cfg := config.Get()
 	var sessionId string
 	requestSeqId := (len(messages) + 1) / 2
-	if cfg.Debug {
+	if c.providerOptions.debug {
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
 			sessionId = sid
 		}
@@ -458,7 +455,7 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 				chunk := copilotStream.Current()
 				acc.AddChunk(chunk)
 
-				if cfg.Debug {
+				if c.providerOptions.debug {
 					logging.AppendToStreamSessionLogJson(sessionId, requestSeqId, chunk)
 				}
 
@@ -521,7 +518,7 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 
 			err := copilotStream.Err()
 			if err == nil || errors.Is(err, io.EOF) {
-				if cfg.Debug {
+				if c.providerOptions.debug {
 					respFilepath := logging.WriteChatResponseJson(sessionId, requestSeqId, acc.ChatCompletion)
 					logging.Debug("Chat completion response", "filepath", respFilepath)
 				}

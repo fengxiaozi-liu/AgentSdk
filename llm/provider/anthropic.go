@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/llm/models"
 	"ferryman-agent/logging"
 	"ferryman-agent/message"
@@ -197,8 +196,7 @@ func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, to
 
 func (a *anthropicClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (resposne *ProviderResponse, err error) {
 	preparedMessages := a.preparedMessages(a.convertMessages(messages), a.convertTools(tools))
-	cfg := config.Get()
-	if cfg.Debug {
+	if a.providerOptions.debug {
 		jsonData, _ := json.Marshal(preparedMessages)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -246,11 +244,10 @@ func (a *anthropicClient) send(ctx context.Context, messages []message.Message, 
 
 func (a *anthropicClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
 	preparedMessages := a.preparedMessages(a.convertMessages(messages), a.convertTools(tools))
-	cfg := config.Get()
 
 	var sessionId string
 	requestSeqId := (len(messages) + 1) / 2
-	if cfg.Debug {
+	if a.providerOptions.debug {
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
 			sessionId = sid
 		}
