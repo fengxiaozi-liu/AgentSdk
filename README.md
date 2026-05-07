@@ -6,22 +6,22 @@ The SDK intentionally does not include Skill tools, CLI/TUI UI, terminal themes,
 
 ## Packages
 
-- `agent`: runtime orchestration and agent events
-- `config`: host-provided SDK configuration structs, defaults, validation, and injection
-- `data/db`, `data/repo`: gorm-backed database connection/models and repository contracts
-- `session`, `message`, `history`: domain services over repos
-- `llm/models`, `llm/provider`: model metadata and provider clients
-- `prompt`: JSON/YAML system prompt resolver
-- `tools/core`: tool protocol, file hook events, and hook result merging
-- `tools/base`: SDK-safe base tools
-- `tools/mcp`: MCP tool discovery and execution
-- `utils/diff`: diff/patch core only
-- `utils/fileutil`, `logging`: shared support utilities
+- `internal/agent`: runtime orchestration and agent events
+- `internal/config`: host-provided SDK configuration structs, defaults, validation, and injection
+- `internal/data/db`, `internal/data/repo`: gorm-backed database connection/models and repository contracts
+- `internal/service/session`, `internal/service/message`, `internal/service/history`: domain services over repos
+- `internal/llm/models`, `internal/llm/provider`: model metadata and provider clients
+- `internal/service/prompt`: JSON/YAML system prompt resolver
+- `internal/tools`: tool protocol, file hook events, and hook result merging
+- `internal/tools/workspace`: SDK-safe workspace tools
+- `internal/mcp`: MCP tool discovery and execution
+- `internal/utils/diff`: diff/patch core only
+- `internal/utils/fileutil`, `internal/data/logging`: shared support utilities
 
 ## Prompts
 
-Default prompts live in `prompt/prompts.json`. A host can provide a JSON or YAML prompt file and set `config.PromptConfigPath`; prompts are then resolved by key, for example `coder`, `title`, `task`, or `summarizer`.
+Default prompts live in `internal/service/prompt/prompts.json`. A host can provide a JSON or YAML prompt file and set `internal/config.PromptConfigPath`; prompts are then resolved by key, for example `coder`, `title`, `task`, or `summarizer`.
 
 ## Model Config
 
-Model profiles use an explicit provider plus model string. Example metadata lives in `llm/models/models.json`; provider request construction can still use arbitrary model IDs.
+Model profiles use an explicit provider plus model string. Example metadata lives in `internal/llm/models/models.json`; provider request construction can still use arbitrary model IDs.
