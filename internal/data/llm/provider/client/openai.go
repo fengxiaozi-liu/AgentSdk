@@ -1,4 +1,4 @@
-package provider
+package client
 
 import (
 	"context"
@@ -27,24 +27,24 @@ type openaiOptions struct {
 type OpenAIOption func(*openaiOptions)
 
 type openaiClient struct {
-	providerOptions providerClientOptions
+	providerOptions Options
 	options         openaiOptions
 	client          openai.Client
 }
 
-type OpenAIClient ProviderClient
+type OpenAIClient Client
 
-func newOpenAIClient(opts providerClientOptions) OpenAIClient {
+func NewOpenAIClient(opts Options) OpenAIClient {
 	openaiOpts := openaiOptions{
 		reasoningEffort: "medium",
 	}
-	for _, o := range opts.openaiOptions {
+	for _, o := range opts.OpenAIOptions {
 		o(&openaiOpts)
 	}
 
 	openaiClientOptions := []option.RequestOption{}
-	if opts.apiKey != "" {
-		openaiClientOptions = append(openaiClientOptions, option.WithAPIKey(opts.apiKey))
+	if opts.APIKey != "" {
+		openaiClientOptions = append(openaiClientOptions, option.WithAPIKey(opts.APIKey))
 	}
 	if openaiOpts.baseURL != "" {
 		openaiClientOptions = append(openaiClientOptions, option.WithBaseURL(openaiOpts.baseURL))
@@ -66,7 +66,7 @@ func newOpenAIClient(opts providerClientOptions) OpenAIClient {
 
 func (o *openaiClient) convertMessages(messages []message.Message) (openaiMessages []openai.ChatCompletionMessageParamUnion) {
 	// Add system message first
-	openaiMessages = append(openaiMessages, openai.SystemMessage(o.providerOptions.systemMessage))
+	openaiMessages = append(openaiMessages, openai.SystemMessage(o.providerOptions.SystemMessage))
 
 	for _, msg := range messages {
 		switch msg.Role {
@@ -160,13 +160,13 @@ func (o *openaiClient) finishReason(reason string) message.FinishReason {
 
 func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolParam) openai.ChatCompletionNewParams {
 	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(o.providerOptions.model.APIModel),
+		Model:    openai.ChatModel(o.providerOptions.Model.APIModel),
 		Messages: messages,
 		Tools:    tools,
 	}
 
-	if o.providerOptions.model.CanReason == true {
-		params.MaxCompletionTokens = openai.Int(o.providerOptions.maxTokens)
+	if o.providerOptions.Model.CanReason == true {
+		params.MaxCompletionTokens = openai.Int(o.providerOptions.MaxTokens)
 		switch o.options.reasoningEffort {
 		case "low":
 			params.ReasoningEffort = shared.ReasoningEffortLow
@@ -178,15 +178,15 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 			params.ReasoningEffort = shared.ReasoningEffortMedium
 		}
 	} else {
-		params.MaxTokens = openai.Int(o.providerOptions.maxTokens)
+		params.MaxTokens = openai.Int(o.providerOptions.MaxTokens)
 	}
 
 	return params
 }
 
-func (o *openaiClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *ProviderResponse, err error) {
+func (o *openaiClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *Response, err error) {
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
-	if o.providerOptions.debug {
+	if o.providerOptions.Debug {
 		jsonData, _ := json.Marshal(params)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -204,7 +204,7 @@ func (o *openaiClient) send(ctx context.Context, messages []message.Message, too
 				return nil, retryErr
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, maxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -227,7 +227,7 @@ func (o *openaiClient) send(ctx context.Context, messages []message.Message, too
 			finishReason = message.FinishReasonToolUse
 		}
 
-		return &ProviderResponse{
+		return &Response{
 			Content:      content,
 			ToolCalls:    toolCalls,
 			Usage:        o.usage(*openaiResponse),
@@ -236,19 +236,19 @@ func (o *openaiClient) send(ctx context.Context, messages []message.Message, too
 	}
 }
 
-func (o *openaiClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
+func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
 	}
 
-	if o.providerOptions.debug {
+	if o.providerOptions.Debug {
 		jsonData, _ := json.Marshal(params)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
 
 	attempts := 0
-	eventChan := make(chan ProviderEvent)
+	eventChan := make(chan Event)
 
 	go func() {
 		for {
@@ -268,7 +268,7 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Content != "" {
-						eventChan <- ProviderEvent{
+						eventChan <- Event{
 							Type:    EventContentDelta,
 							Content: choice.Delta.Content,
 						}
@@ -288,9 +288,9 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 					finishReason = message.FinishReasonToolUse
 				}
 
-				eventChan <- ProviderEvent{
+				eventChan <- Event{
 					Type: EventComplete,
-					Response: &ProviderResponse{
+					Response: &Response{
 						Content:      currentContent,
 						ToolCalls:    toolCalls,
 						Usage:        o.usage(acc.ChatCompletion),
@@ -304,17 +304,17 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 			// If there is an error we are going to see if we can retry the call
 			retry, after, retryErr := o.shouldRetry(attempts, err)
 			if retryErr != nil {
-				eventChan <- ProviderEvent{Type: EventError, Error: retryErr}
+				eventChan <- Event{Type: EventError, Error: retryErr}
 				close(eventChan)
 				return
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, maxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					// context cancelled
 					if ctx.Err() == nil {
-						eventChan <- ProviderEvent{Type: EventError, Error: ctx.Err()}
+						eventChan <- Event{Type: EventError, Error: ctx.Err()}
 					}
 					close(eventChan)
 					return
@@ -322,7 +322,7 @@ func (o *openaiClient) stream(ctx context.Context, messages []message.Message, t
 					continue
 				}
 			}
-			eventChan <- ProviderEvent{Type: EventError, Error: retryErr}
+			eventChan <- Event{Type: EventError, Error: retryErr}
 			close(eventChan)
 			return
 		}
@@ -341,8 +341,8 @@ func (o *openaiClient) shouldRetry(attempts int, err error) (bool, int64, error)
 		return false, 0, err
 	}
 
-	if attempts > maxRetries {
-		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", maxRetries)
+	if attempts > MaxRetries {
+		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", MaxRetries)
 	}
 
 	retryMs := 0

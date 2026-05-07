@@ -13,6 +13,7 @@ import (
 	sdkconfig "ferryman-agent/internal/config"
 	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/data/llm/provider"
+	"ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/history"
 	"ferryman-agent/internal/memory/message"
@@ -503,7 +504,7 @@ func (a *agent) finishMessage(ctx context.Context, msg *message.Message, finishR
 	_ = a.messages.Update(ctx, *msg)
 }
 
-func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg *message.Message, event provider.ProviderEvent) error {
+func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg *message.Message, event client.Event) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -512,17 +513,17 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 	}
 
 	switch event.Type {
-	case provider.EventThinkingDelta:
+	case client.EventThinkingDelta:
 		assistantMsg.AppendReasoningContent(event.Content)
 		return a.messages.Update(ctx, *assistantMsg)
-	case provider.EventContentDelta:
+	case client.EventContentDelta:
 		assistantMsg.AppendContent(event.Content)
 		return a.messages.Update(ctx, *assistantMsg)
-	case provider.EventToolUseStart:
+	case client.EventToolUseStart:
 		assistantMsg.AddToolCall(*event.ToolCall)
 		return a.messages.Update(ctx, *assistantMsg)
 	// TODO: see how to handle this
-	// case provider.EventToolUseDelta:
+	// case client.EventToolUseDelta:
 	// 	tm := time.Unix(assistantMsg.UpdatedAt, 0)
 	// 	assistantMsg.AppendToolCallInput(event.ToolCall.ID, event.ToolCall.Input)
 	// 	if time.Since(tm) > 1000*time.Millisecond {
@@ -530,17 +531,17 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 	// 		assistantMsg.UpdatedAt = time.Now().Unix()
 	// 		return err
 	// 	}
-	case provider.EventToolUseStop:
+	case client.EventToolUseStop:
 		assistantMsg.FinishToolCall(event.ToolCall.ID)
 		return a.messages.Update(ctx, *assistantMsg)
-	case provider.EventError:
+	case client.EventError:
 		if errors.Is(event.Error, context.Canceled) {
 			logging.InfoPersist(fmt.Sprintf("Event processing canceled for session: %s", sessionID))
 			return context.Canceled
 		}
 		logging.ErrorPersist(event.Error.Error())
 		return event.Error
-	case provider.EventComplete:
+	case client.EventComplete:
 		assistantMsg.SetToolCalls(event.Response.ToolCalls)
 		assistantMsg.AddFinish(event.Response.FinishReason)
 		if err := a.messages.Update(ctx, *assistantMsg); err != nil {
@@ -552,7 +553,7 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 	return nil
 }
 
-func (a *agent) TrackUsage(ctx context.Context, sessionID string, model models.Model, usage provider.TokenUsage) error {
+func (a *agent) TrackUsage(ctx context.Context, sessionID string, model models.Model, usage client.TokenUsage) error {
 	sess, err := a.sessions.Get(ctx, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to get session: %w", err)

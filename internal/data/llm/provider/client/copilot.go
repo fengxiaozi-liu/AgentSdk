@@ -1,4 +1,4 @@
-package provider
+package client
 
 import (
 	"context"
@@ -31,13 +31,13 @@ type copilotOptions struct {
 type CopilotOption func(*copilotOptions)
 
 type copilotClient struct {
-	providerOptions providerClientOptions
+	providerOptions Options
 	options         copilotOptions
 	client          openai.Client
 	httpClient      *http.Client
 }
 
-type CopilotClient ProviderClient
+type CopilotClient Client
 
 // CopilotTokenResponse represents the response from GitHub's token exchange endpoint
 type CopilotTokenResponse struct {
@@ -87,7 +87,7 @@ func loadGitHubToken() (string, error) {
 }
 
 func (c *copilotClient) isAnthropicModel() bool {
-	modelID := string(c.providerOptions.model.ID)
+	modelID := string(c.providerOptions.Model.ID)
 	return strings.HasPrefix(modelID, "copilot.claude-") || strings.HasPrefix(modelID, "claude-")
 }
 
@@ -122,12 +122,12 @@ func (c *copilotClient) exchangeGitHubToken(githubToken string) (string, error) 
 	return tokenResp.Token, nil
 }
 
-func newCopilotClient(opts providerClientOptions) CopilotClient {
+func NewCopilotClient(opts Options) CopilotClient {
 	copilotOpts := copilotOptions{
 		reasoningEffort: "medium",
 	}
 	// Apply copilot-specific options
-	for _, o := range opts.copilotOptions {
+	for _, o := range opts.CopilotOptions {
 		o(&copilotOpts)
 	}
 
@@ -150,7 +150,7 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 
 		// 2. API key from options
 		if githubToken == "" {
-			githubToken = opts.apiKey
+			githubToken = opts.APIKey
 		}
 
 		// 3. Standard GitHub CLI/Copilot locations
@@ -216,7 +216,7 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 	}
 
 	client := openai.NewClient(openaiClientOptions...)
-	// logging.Debug("Copilot client created", "opts", opts, "copilotOpts", copilotOpts, "model", opts.model)
+	// logging.Debug("Copilot client created", "opts", opts, "copilotOpts", copilotOpts, "model", opts.Model)
 	return &copilotClient{
 		providerOptions: opts,
 		options:         copilotOpts,
@@ -227,7 +227,7 @@ func newCopilotClient(opts providerClientOptions) CopilotClient {
 
 func (c *copilotClient) convertMessages(messages []message.Message) (copilotMessages []openai.ChatCompletionMessageParamUnion) {
 	// Add system message first
-	copilotMessages = append(copilotMessages, openai.SystemMessage(c.providerOptions.systemMessage))
+	copilotMessages = append(copilotMessages, openai.SystemMessage(c.providerOptions.SystemMessage))
 
 	for _, msg := range messages {
 		switch msg.Role {
@@ -321,13 +321,13 @@ func (c *copilotClient) finishReason(reason string) message.FinishReason {
 
 func (c *copilotClient) preparedParams(messages []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolParam) openai.ChatCompletionNewParams {
 	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(c.providerOptions.model.APIModel),
+		Model:    openai.ChatModel(c.providerOptions.Model.APIModel),
 		Messages: messages,
 		Tools:    tools,
 	}
 
-	if c.providerOptions.model.CanReason == true {
-		params.MaxCompletionTokens = openai.Int(c.providerOptions.maxTokens)
+	if c.providerOptions.Model.CanReason == true {
+		params.MaxCompletionTokens = openai.Int(c.providerOptions.MaxTokens)
 		switch c.options.reasoningEffort {
 		case "low":
 			params.ReasoningEffort = shared.ReasoningEffortLow
@@ -339,17 +339,17 @@ func (c *copilotClient) preparedParams(messages []openai.ChatCompletionMessagePa
 			params.ReasoningEffort = shared.ReasoningEffortMedium
 		}
 	} else {
-		params.MaxTokens = openai.Int(c.providerOptions.maxTokens)
+		params.MaxTokens = openai.Int(c.providerOptions.MaxTokens)
 	}
 
 	return params
 }
 
-func (c *copilotClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *ProviderResponse, err error) {
+func (c *copilotClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *Response, err error) {
 	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
 	var sessionId string
 	requestSeqId := (len(messages) + 1) / 2
-	if c.providerOptions.debug {
+	if c.providerOptions.Debug {
 		// jsonData, _ := json.Marshal(params)
 		// logging.Debug("Prepared messages", "messages", string(jsonData))
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
@@ -379,7 +379,7 @@ func (c *copilotClient) send(ctx context.Context, messages []message.Message, to
 				return nil, retryErr
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, maxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -402,7 +402,7 @@ func (c *copilotClient) send(ctx context.Context, messages []message.Message, to
 			finishReason = message.FinishReasonToolUse
 		}
 
-		return &ProviderResponse{
+		return &Response{
 			Content:      content,
 			ToolCalls:    toolCalls,
 			Usage:        c.usage(*copilotResponse),
@@ -411,7 +411,7 @@ func (c *copilotClient) send(ctx context.Context, messages []message.Message, to
 	}
 }
 
-func (c *copilotClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
+func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
 	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
@@ -419,7 +419,7 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 
 	var sessionId string
 	requestSeqId := (len(messages) + 1) / 2
-	if c.providerOptions.debug {
+	if c.providerOptions.Debug {
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
 			sessionId = sid
 		}
@@ -434,7 +434,7 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 	}
 
 	attempts := 0
-	eventChan := make(chan ProviderEvent)
+	eventChan := make(chan Event)
 
 	go func() {
 		for {
@@ -455,13 +455,13 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 				chunk := copilotStream.Current()
 				acc.AddChunk(chunk)
 
-				if c.providerOptions.debug {
+				if c.providerOptions.Debug {
 					logging.AppendToStreamSessionLogJson(sessionId, requestSeqId, chunk)
 				}
 
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Content != "" {
-						eventChan <- ProviderEvent{
+						eventChan <- Event{
 							Type:    EventContentDelta,
 							Content: choice.Delta.Content,
 						}
@@ -518,7 +518,7 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 
 			err := copilotStream.Err()
 			if err == nil || errors.Is(err, io.EOF) {
-				if c.providerOptions.debug {
+				if c.providerOptions.Debug {
 					respFilepath := logging.WriteChatResponseJson(sessionId, requestSeqId, acc.ChatCompletion)
 					logging.Debug("Chat completion response", "filepath", respFilepath)
 				}
@@ -531,9 +531,9 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 					finishReason = message.FinishReasonToolUse
 				}
 
-				eventChan <- ProviderEvent{
+				eventChan <- Event{
 					Type: EventComplete,
-					Response: &ProviderResponse{
+					Response: &Response{
 						Content:      currentContent,
 						ToolCalls:    toolCalls,
 						Usage:        c.usage(acc.ChatCompletion),
@@ -547,23 +547,23 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 			// If there is an error we are going to see if we can retry the call
 			retry, after, retryErr := c.shouldRetry(attempts, err)
 			if retryErr != nil {
-				eventChan <- ProviderEvent{Type: EventError, Error: retryErr}
+				eventChan <- Event{Type: EventError, Error: retryErr}
 				close(eventChan)
 				return
 			}
 			// shouldRetry is not catching the max retries...
 			// TODO: Figure out why
-			if attempts > maxRetries {
-				logging.Warn("Maximum retry attempts reached for rate limit", "attempts", attempts, "max_retries", maxRetries)
+			if attempts > MaxRetries {
+				logging.Warn("Maximum retry attempts reached for rate limit", "attempts", attempts, "max_retries", MaxRetries)
 				retry = false
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d (paused for %d ms)", attempts, maxRetries, after), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d (paused for %d ms)", attempts, MaxRetries, after), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					// context cancelled
 					if ctx.Err() == nil {
-						eventChan <- ProviderEvent{Type: EventError, Error: ctx.Err()}
+						eventChan <- Event{Type: EventError, Error: ctx.Err()}
 					}
 					close(eventChan)
 					return
@@ -571,7 +571,7 @@ func (c *copilotClient) stream(ctx context.Context, messages []message.Message, 
 					continue
 				}
 			}
-			eventChan <- ProviderEvent{Type: EventError, Error: retryErr}
+			eventChan <- Event{Type: EventError, Error: retryErr}
 			close(eventChan)
 			return
 		}
@@ -596,7 +596,7 @@ func (c *copilotClient) shouldRetry(attempts int, err error) (bool, int64, error
 
 		// 2. API key from options
 		if githubToken == "" {
-			githubToken = c.providerOptions.apiKey
+			githubToken = c.providerOptions.APIKey
 		}
 
 		// 3. Standard GitHub CLI/Copilot locations
@@ -632,8 +632,8 @@ func (c *copilotClient) shouldRetry(attempts int, err error) (bool, int64, error
 		logging.Warn("Copilot API returned 500 error, retrying", "error", err)
 	}
 
-	if attempts > maxRetries {
-		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", maxRetries)
+	if attempts > MaxRetries {
+		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", MaxRetries)
 	}
 
 	retryMs := 0

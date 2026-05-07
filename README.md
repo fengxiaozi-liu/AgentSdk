@@ -10,7 +10,7 @@ The SDK intentionally does not include Skill tools, CLI/TUI UI, terminal themes,
 - `internal/config`: host-provided SDK configuration structs, defaults, validation, and injection
 - `internal/data/db`, `internal/data/repo`: gorm-backed database connection/models and repository contracts
 - `internal/memory/session`, `internal/memory/message`, `internal/memory/history`: domain services over repos
-- `internal/data/llm/models`, `internal/data/llm/provider`: model metadata and provider clients
+- `internal/data/llm/models`, `internal/data/llm/provider`: model metadata, provider factory, and provider clients under `provider/client`
 - `internal/prompt`: JSON/YAML system prompt resolver
 - `internal/tools`: tool protocol, file hook events, and hook result merging
 - `internal/capability/workspace`: SDK-safe workspace tools

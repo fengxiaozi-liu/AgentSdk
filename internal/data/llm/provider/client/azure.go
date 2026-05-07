@@ -1,4 +1,4 @@
-package provider
+package client
 
 import (
 	"os"
@@ -13,23 +13,23 @@ type azureClient struct {
 	*openaiClient
 }
 
-type AzureClient ProviderClient
+type AzureClient Client
 
-func newAzureClient(opts providerClientOptions) AzureClient {
+func NewAzureClient(opts Options) AzureClient {
 
 	endpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")      // ex: https://foo.openai.azure.com
 	apiVersion := os.Getenv("AZURE_OPENAI_API_VERSION") // ex: 2025-04-01-preview
 
 	if endpoint == "" || apiVersion == "" {
-		return &azureClient{openaiClient: newOpenAIClient(opts).(*openaiClient)}
+		return &azureClient{openaiClient: NewOpenAIClient(opts).(*openaiClient)}
 	}
 
 	reqOpts := []option.RequestOption{
 		azure.WithEndpoint(endpoint, apiVersion),
 	}
 
-	if opts.apiKey != "" || os.Getenv("AZURE_OPENAI_API_KEY") != "" {
-		key := opts.apiKey
+	if opts.APIKey != "" || os.Getenv("AZURE_OPENAI_API_KEY") != "" {
+		key := opts.APIKey
 		if key == "" {
 			key = os.Getenv("AZURE_OPENAI_API_KEY")
 		}

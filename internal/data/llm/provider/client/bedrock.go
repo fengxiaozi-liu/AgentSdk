@@ -1,4 +1,4 @@
-package provider
+package client
 
 import (
 	"context"
@@ -18,14 +18,14 @@ type bedrockOptions struct {
 type BedrockOption func(*bedrockOptions)
 
 type bedrockClient struct {
-	providerOptions providerClientOptions
+	providerOptions Options
 	options         bedrockOptions
-	childProvider   ProviderClient
+	childProvider   Client
 }
 
-type BedrockClient ProviderClient
+type BedrockClient Client
 
-func newBedrockClient(opts providerClientOptions) BedrockClient {
+func NewBedrockClient(opts Options) BedrockClient {
 	bedrockOpts := bedrockOptions{}
 	// Apply bedrock specific options if they are added in the future
 
@@ -48,21 +48,21 @@ func newBedrockClient(opts providerClientOptions) BedrockClient {
 
 	// Prefix the model name with region
 	regionPrefix := region[:2]
-	modelName := opts.model.APIModel
-	opts.model.APIModel = fmt.Sprintf("%s.%s", regionPrefix, modelName)
+	modelName := opts.Model.APIModel
+	opts.Model.APIModel = fmt.Sprintf("%s.%s", regionPrefix, modelName)
 
 	// Determine which provider to use based on the model
-	if strings.Contains(string(opts.model.APIModel), "anthropic") {
+	if strings.Contains(string(opts.Model.APIModel), "anthropic") {
 		// Create Anthropic client with Bedrock configuration
 		anthropicOpts := opts
-		anthropicOpts.anthropicOptions = append(anthropicOpts.anthropicOptions,
+		anthropicOpts.AnthropicOptions = append(anthropicOpts.AnthropicOptions,
 			WithAnthropicBedrock(true),
 			WithAnthropicDisableCache(),
 		)
 		return &bedrockClient{
 			providerOptions: opts,
 			options:         bedrockOpts,
-			childProvider:   newAnthropicClient(anthropicOpts),
+			childProvider:   NewAnthropicClient(anthropicOpts),
 		}
 	}
 
@@ -75,19 +75,19 @@ func newBedrockClient(opts providerClientOptions) BedrockClient {
 	}
 }
 
-func (b *bedrockClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*ProviderResponse, error) {
+func (b *bedrockClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*Response, error) {
 	if b.childProvider == nil {
 		return nil, errors.New("unsupported model for bedrock provider")
 	}
-	return b.childProvider.send(ctx, messages, tools)
+	return b.childProvider.Send(ctx, messages, tools)
 }
 
-func (b *bedrockClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
-	eventChan := make(chan ProviderEvent)
+func (b *bedrockClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
+	eventChan := make(chan Event)
 
 	if b.childProvider == nil {
 		go func() {
-			eventChan <- ProviderEvent{
+			eventChan <- Event{
 				Type:  EventError,
 				Error: errors.New("unsupported model for bedrock provider"),
 			}
@@ -96,5 +96,5 @@ func (b *bedrockClient) stream(ctx context.Context, messages []message.Message, 
 		return eventChan
 	}
 
-	return b.childProvider.stream(ctx, messages, tools)
+	return b.childProvider.Stream(ctx, messages, tools)
 }

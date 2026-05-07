@@ -1,4 +1,4 @@
-package provider
+package client
 
 import (
 	"context"
@@ -27,22 +27,22 @@ type anthropicOptions struct {
 type AnthropicOption func(*anthropicOptions)
 
 type anthropicClient struct {
-	providerOptions providerClientOptions
+	providerOptions Options
 	options         anthropicOptions
 	client          anthropic.Client
 }
 
-type AnthropicClient ProviderClient
+type AnthropicClient Client
 
-func newAnthropicClient(opts providerClientOptions) AnthropicClient {
+func NewAnthropicClient(opts Options) AnthropicClient {
 	anthropicOpts := anthropicOptions{}
-	for _, o := range opts.anthropicOptions {
+	for _, o := range opts.AnthropicOptions {
 		o(&anthropicOpts)
 	}
 
 	anthropicClientOptions := []option.RequestOption{}
-	if opts.apiKey != "" {
-		anthropicClientOptions = append(anthropicClientOptions, option.WithAPIKey(opts.apiKey))
+	if opts.APIKey != "" {
+		anthropicClientOptions = append(anthropicClientOptions, option.WithAPIKey(opts.APIKey))
 	}
 	if anthropicOpts.useBedrock {
 		anthropicClientOptions = append(anthropicClientOptions, bedrock.WithLoadDefaultConfig(context.Background()))
@@ -171,21 +171,21 @@ func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, to
 			}
 		}
 		if messageContent != "" && a.options.shouldThink != nil && a.options.shouldThink(messageContent) {
-			thinkingParam = anthropic.ThinkingConfigParamOfEnabled(int64(float64(a.providerOptions.maxTokens) * 0.8))
+			thinkingParam = anthropic.ThinkingConfigParamOfEnabled(int64(float64(a.providerOptions.MaxTokens) * 0.8))
 			temperature = anthropic.Float(1)
 		}
 	}
 
 	return anthropic.MessageNewParams{
-		Model:       anthropic.Model(a.providerOptions.model.APIModel),
-		MaxTokens:   a.providerOptions.maxTokens,
+		Model:       anthropic.Model(a.providerOptions.Model.APIModel),
+		MaxTokens:   a.providerOptions.MaxTokens,
 		Temperature: temperature,
 		Messages:    messages,
 		Tools:       tools,
 		Thinking:    thinkingParam,
 		System: []anthropic.TextBlockParam{
 			{
-				Text: a.providerOptions.systemMessage,
+				Text: a.providerOptions.SystemMessage,
 				CacheControl: anthropic.CacheControlEphemeralParam{
 					Type: "ephemeral",
 				},
@@ -194,9 +194,9 @@ func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, to
 	}
 }
 
-func (a *anthropicClient) send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (resposne *ProviderResponse, err error) {
+func (a *anthropicClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (resposne *Response, err error) {
 	preparedMessages := a.preparedMessages(a.convertMessages(messages), a.convertTools(tools))
-	if a.providerOptions.debug {
+	if a.providerOptions.Debug {
 		jsonData, _ := json.Marshal(preparedMessages)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -216,7 +216,7 @@ func (a *anthropicClient) send(ctx context.Context, messages []message.Message, 
 				return nil, retryErr
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, maxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -234,7 +234,7 @@ func (a *anthropicClient) send(ctx context.Context, messages []message.Message, 
 			}
 		}
 
-		return &ProviderResponse{
+		return &Response{
 			Content:   content,
 			ToolCalls: a.toolCalls(*anthropicResponse),
 			Usage:     a.usage(*anthropicResponse),
@@ -242,12 +242,12 @@ func (a *anthropicClient) send(ctx context.Context, messages []message.Message, 
 	}
 }
 
-func (a *anthropicClient) stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan ProviderEvent {
+func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
 	preparedMessages := a.preparedMessages(a.convertMessages(messages), a.convertTools(tools))
 
 	var sessionId string
 	requestSeqId := (len(messages) + 1) / 2
-	if a.providerOptions.debug {
+	if a.providerOptions.Debug {
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
 			sessionId = sid
 		}
@@ -261,7 +261,7 @@ func (a *anthropicClient) stream(ctx context.Context, messages []message.Message
 
 	}
 	attempts := 0
-	eventChan := make(chan ProviderEvent)
+	eventChan := make(chan Event)
 	go func() {
 		for {
 			attempts++
@@ -283,10 +283,10 @@ func (a *anthropicClient) stream(ctx context.Context, messages []message.Message
 				switch event := event.AsAny().(type) {
 				case anthropic.ContentBlockStartEvent:
 					if event.ContentBlock.Type == "text" {
-						eventChan <- ProviderEvent{Type: EventContentStart}
+						eventChan <- Event{Type: EventContentStart}
 					} else if event.ContentBlock.Type == "tool_use" {
 						currentToolCallID = event.ContentBlock.ID
-						eventChan <- ProviderEvent{
+						eventChan <- Event{
 							Type: EventToolUseStart,
 							ToolCall: &message.ToolCall{
 								ID:       event.ContentBlock.ID,
@@ -298,18 +298,18 @@ func (a *anthropicClient) stream(ctx context.Context, messages []message.Message
 
 				case anthropic.ContentBlockDeltaEvent:
 					if event.Delta.Type == "thinking_delta" && event.Delta.Thinking != "" {
-						eventChan <- ProviderEvent{
+						eventChan <- Event{
 							Type:     EventThinkingDelta,
 							Thinking: event.Delta.Thinking,
 						}
 					} else if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
-						eventChan <- ProviderEvent{
+						eventChan <- Event{
 							Type:    EventContentDelta,
 							Content: event.Delta.Text,
 						}
 					} else if event.Delta.Type == "input_json_delta" {
 						if currentToolCallID != "" {
-							eventChan <- ProviderEvent{
+							eventChan <- Event{
 								Type: EventToolUseDelta,
 								ToolCall: &message.ToolCall{
 									ID:       currentToolCallID,
@@ -321,7 +321,7 @@ func (a *anthropicClient) stream(ctx context.Context, messages []message.Message
 					}
 				case anthropic.ContentBlockStopEvent:
 					if currentToolCallID != "" {
-						eventChan <- ProviderEvent{
+						eventChan <- Event{
 							Type: EventToolUseStop,
 							ToolCall: &message.ToolCall{
 								ID: currentToolCallID,
@@ -329,7 +329,7 @@ func (a *anthropicClient) stream(ctx context.Context, messages []message.Message
 						}
 						currentToolCallID = ""
 					} else {
-						eventChan <- ProviderEvent{Type: EventContentStop}
+						eventChan <- Event{Type: EventContentStop}
 					}
 
 				case anthropic.MessageStopEvent:
@@ -340,9 +340,9 @@ func (a *anthropicClient) stream(ctx context.Context, messages []message.Message
 						}
 					}
 
-					eventChan <- ProviderEvent{
+					eventChan <- Event{
 						Type: EventComplete,
-						Response: &ProviderResponse{
+						Response: &Response{
 							Content:      content,
 							ToolCalls:    a.toolCalls(accumulatedMessage),
 							Usage:        a.usage(accumulatedMessage),
@@ -360,17 +360,17 @@ func (a *anthropicClient) stream(ctx context.Context, messages []message.Message
 			// If there is an error we are going to see if we can retry the call
 			retry, after, retryErr := a.shouldRetry(attempts, err)
 			if retryErr != nil {
-				eventChan <- ProviderEvent{Type: EventError, Error: retryErr}
+				eventChan <- Event{Type: EventError, Error: retryErr}
 				close(eventChan)
 				return
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, maxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					// context cancelled
 					if ctx.Err() != nil {
-						eventChan <- ProviderEvent{Type: EventError, Error: ctx.Err()}
+						eventChan <- Event{Type: EventError, Error: ctx.Err()}
 					}
 					close(eventChan)
 					return
@@ -379,7 +379,7 @@ func (a *anthropicClient) stream(ctx context.Context, messages []message.Message
 				}
 			}
 			if ctx.Err() != nil {
-				eventChan <- ProviderEvent{Type: EventError, Error: ctx.Err()}
+				eventChan <- Event{Type: EventError, Error: ctx.Err()}
 			}
 
 			close(eventChan)
@@ -399,8 +399,8 @@ func (a *anthropicClient) shouldRetry(attempts int, err error) (bool, int64, err
 		return false, 0, err
 	}
 
-	if attempts > maxRetries {
-		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", maxRetries)
+	if attempts > MaxRetries {
+		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", MaxRetries)
 	}
 
 	retryMs := 0

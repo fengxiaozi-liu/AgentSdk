@@ -1,4 +1,4 @@
-package provider
+package client
 
 import (
 	"context"
@@ -8,11 +8,11 @@ import (
 	"google.golang.org/genai"
 )
 
-type VertexAIClient ProviderClient
+type VertexAIClient Client
 
-func newVertexAIClient(opts providerClientOptions) VertexAIClient {
+func NewVertexAIClient(opts Options) VertexAIClient {
 	geminiOpts := geminiOptions{}
-	for _, o := range opts.geminiOptions {
+	for _, o := range opts.GeminiOptions {
 		o(&geminiOpts)
 	}
 
