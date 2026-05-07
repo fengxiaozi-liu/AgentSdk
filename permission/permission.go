@@ -2,14 +2,17 @@ package permission
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 
-	"ferryman-agent/config"
 	"ferryman-agent/pubsub"
 	"github.com/google/uuid"
+	"github.com/google/wire"
 )
+
+var ProviderSet = wire.NewSet(NewServiceWithWorkingDir)
 
 var ErrorPermissionDenied = errors.New("permission denied")
 
@@ -46,13 +49,23 @@ type permissionService struct {
 	sessionPermissions  []PermissionRequest
 	pendingRequests     sync.Map
 	autoApproveSessions []string
+	workingDir          string
 }
 
-func NewService() Service {
+func NewService(workingDir ...string) Service {
+	root := ""
+	if len(workingDir) > 0 {
+		root = workingDir[0]
+	}
 	return &permissionService{
 		Broker:             pubsub.NewBroker[PermissionRequest](),
 		sessionPermissions: make([]PermissionRequest, 0),
+		workingDir:         root,
 	}
+}
+
+func NewServiceWithWorkingDir(workingDir string) Service {
+	return NewService(workingDir)
 }
 
 func (s *permissionService) GrantPersistant(permission PermissionRequest) {
@@ -80,7 +93,7 @@ func (s *permissionService) Request(opts CreatePermissionRequest) bool {
 	}
 	dir := filepath.Dir(opts.Path)
 	if dir == "." {
-		dir = config.WorkingDirectory()
+		dir = s.root()
 	}
 	permission := PermissionRequest{
 		ID:          uuid.New().String(),
@@ -105,4 +118,15 @@ func (s *permissionService) Request(opts CreatePermissionRequest) bool {
 
 func (s *permissionService) AutoApproveSession(sessionID string) {
 	s.autoApproveSessions = append(s.autoApproveSessions, sessionID)
+}
+
+func (s *permissionService) root() string {
+	if s.workingDir != "" {
+		return s.workingDir
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
 }

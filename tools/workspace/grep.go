@@ -1,4 +1,4 @@
-package base
+package workspace
 
 import (
 	"bufio"
@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/utils/fileutil"
 )
 
@@ -38,7 +37,9 @@ type GrepResponseMetadata struct {
 	Truncated       bool `json:"truncated"`
 }
 
-type grepTool struct{}
+type grepTool struct {
+	workspace Workspace
+}
 
 const (
 	GrepToolName    = "grep"
@@ -80,8 +81,8 @@ TIPS:
 - Use literal_text=true when searching for exact text containing special characters like dots, parentheses, etc.`
 )
 
-func NewGrepTool() toolcore.BaseTool {
-	return &grepTool{}
+func NewGrepTool(workspace Workspace) toolcore.BaseTool {
+	return &grepTool{workspace: workspace}
 }
 
 func (g *grepTool) Info() toolcore.ToolInfo {
@@ -138,9 +139,9 @@ func (g *grepTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 		searchPattern = escapeRegexPattern(params.Pattern)
 	}
 
-	searchPath := params.Path
-	if searchPath == "" {
-		searchPath = config.WorkingDirectory()
+	searchPath, err := g.workspace.Resolve(params.Path)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
 
 	matches, truncated, err := searchFiles(searchPattern, searchPath, params.Include, 100)
@@ -216,9 +217,10 @@ func searchWithRipgrep(pattern, path, include string) ([]grepMatch, error) {
 	if include != "" {
 		args = append(args, "--glob", include)
 	}
-	args = append(args, path)
+	args = append(args, ".")
 
 	cmd := exec.Command("rg", args...)
+	cmd.Dir = path
 	output, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
@@ -242,6 +244,9 @@ func searchWithRipgrep(pattern, path, include string) ([]grepMatch, error) {
 		}
 
 		filePath := parts[0]
+		if !filepath.IsAbs(filePath) {
+			filePath = filepath.Join(path, filePath)
+		}
 		lineNum, err := strconv.Atoi(parts[1])
 		if err != nil {
 			continue

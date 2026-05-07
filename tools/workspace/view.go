@@ -1,4 +1,4 @@
-package base
+package workspace
 
 import (
 	"bufio"
@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"ferryman-agent/config"
 	"ferryman-agent/logging"
 	toolcore "ferryman-agent/tools/core"
 	"ferryman-agent/utils/fileutil"
@@ -23,7 +22,8 @@ type ViewParams struct {
 }
 
 type viewTool struct {
-	hooks *toolcore.FileHookDispatcher
+	workspace Workspace
+	hooks     *toolcore.FileHookDispatcher
 }
 
 type ViewResponseMetadata struct {
@@ -68,9 +68,10 @@ TIPS:
 - When viewing large files, use the offset parameter to read specific sections`
 )
 
-func NewViewTool(hooks ...toolcore.FileHook) toolcore.BaseTool {
+func NewViewTool(workspace Workspace, hooks ...toolcore.FileHook) toolcore.BaseTool {
 	return &viewTool{
-		hooks: toolcore.NewFileHookDispatcher(hooks...),
+		workspace: workspace,
+		hooks:     toolcore.NewFileHookDispatcher(hooks...),
 	}
 }
 
@@ -108,10 +109,9 @@ func (v *viewTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 		return toolcore.NewTextErrorResponse("file_path is required"), nil
 	}
 
-	// Handle relative paths
-	filePath := params.FilePath
-	if !filepath.IsAbs(filePath) {
-		filePath = filepath.Join(config.WorkingDirectory(), filePath)
+	filePath, err := v.workspace.Resolve(params.FilePath)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
 
 	// Check if file exists

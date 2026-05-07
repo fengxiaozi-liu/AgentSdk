@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"github.com/aymanbagabas/go-udiff"
-
-	"ferryman-agent/config"
 )
 
 type LineType int
@@ -125,9 +123,8 @@ func ParseUnifiedDiff(diffText string) (DiffResult, error) {
 	return result, nil
 }
 
-func GenerateDiff(beforeContent, afterContent, fileName string) (string, int, int) {
-	cwd := config.WorkingDirectory()
-	if rel, err := filepath.Rel(cwd, fileName); err == nil && !strings.HasPrefix(rel, "..") {
+func GenerateDiff(beforeContent, afterContent, fileName, cwd string) (string, int, int) {
+	if rel, err := filepath.Rel(cwd, fileName); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		fileName = rel
 	} else {
 		fileName = strings.TrimPrefix(fileName, cwd)

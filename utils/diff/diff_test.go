@@ -4,24 +4,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"ferryman-agent/config"
 )
 
-func ensureConfig(t *testing.T) string {
+func testWorkingDir(t *testing.T) string {
 	t.Helper()
-	workingDir := t.TempDir()
-	if _, err := config.Use(config.Config{WorkingDir: workingDir}); err != nil {
-		t.Fatalf("use config: %v", err)
-	}
-	return workingDir
+	return t.TempDir()
 }
 
 func TestGenerateDiffCountsAdditionsAndRemovals(t *testing.T) {
-	workingDir := ensureConfig(t)
+	workingDir := testWorkingDir(t)
 	filePath := filepath.Join(workingDir, "file.txt")
 
-	diffText, additions, removals := GenerateDiff("one\ntwo\n", "one\nthree\nfour\n", filePath)
+	diffText, additions, removals := GenerateDiff("one\ntwo\n", "one\nthree\nfour\n", filePath, workingDir)
 
 	if additions != 2 {
 		t.Fatalf("expected 2 additions, got %d\n%s", additions, diffText)

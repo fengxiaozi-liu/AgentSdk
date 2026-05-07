@@ -1,4 +1,4 @@
-package base
+package workspace
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/history"
 	"ferryman-agent/logging"
 	"ferryman-agent/permission"
@@ -28,6 +27,7 @@ type PatchResponseMetadata struct {
 }
 
 type patchTool struct {
+	workspace   Workspace
 	permissions permission.Service
 	files       history.Service
 	hooks       *toolcore.FileHookDispatcher
@@ -65,8 +65,9 @@ CRITICAL REQUIREMENTS FOR USING THIS TOOL:
 The tool will apply all changes in a single atomic operation.`
 )
 
-func NewPatchTool(permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
+func NewPatchTool(workspace Workspace, permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
 	return &patchTool{
+		workspace:   workspace,
 		permissions: permissions,
 		files:       files,
 		hooks:       toolcore.NewFileHookDispatcher(hooks...),
@@ -100,10 +101,9 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 	// Identify all files needed for the patch and verify they've been read
 	filesToRead := diff.IdentifyFilesNeeded(params.PatchText)
 	for _, filePath := range filesToRead {
-		absPath := filePath
-		if !filepath.IsAbs(absPath) {
-			wd := config.WorkingDirectory()
-			absPath = filepath.Join(wd, absPath)
+		absPath, err := p.workspace.Resolve(filePath)
+		if err != nil {
+			return toolcore.NewTextErrorResponse(err.Error()), nil
 		}
 
 		if fileutil.GetLastReadTime(absPath).IsZero() {
@@ -135,13 +135,12 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 	// Check for new files to ensure they don't already exist
 	filesToAdd := diff.IdentifyFilesAdded(params.PatchText)
 	for _, filePath := range filesToAdd {
-		absPath := filePath
-		if !filepath.IsAbs(absPath) {
-			wd := config.WorkingDirectory()
-			absPath = filepath.Join(wd, absPath)
+		absPath, err := p.workspace.Resolve(filePath)
+		if err != nil {
+			return toolcore.NewTextErrorResponse(err.Error()), nil
 		}
 
-		_, err := os.Stat(absPath)
+		_, err = os.Stat(absPath)
 		if err == nil {
 			return toolcore.NewTextErrorResponse(fmt.Sprintf("file already exists and cannot be added: %s", absPath)), nil
 		} else if !os.IsNotExist(err) {
@@ -152,10 +151,9 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 	// Load all required files
 	currentFiles := make(map[string]string)
 	for _, filePath := range filesToRead {
-		absPath := filePath
-		if !filepath.IsAbs(absPath) {
-			wd := config.WorkingDirectory()
-			absPath = filepath.Join(wd, absPath)
+		absPath, err := p.workspace.Resolve(filePath)
+		if err != nil {
+			return toolcore.NewTextErrorResponse(err.Error()), nil
 		}
 
 		content, err := os.ReadFile(absPath)
@@ -191,17 +189,21 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 	for path, change := range commit.Changes {
 		switch change.Type {
 		case diff.ActionAdd:
-			dir := filepath.Dir(path)
-			patchDiff, _, _ := diff.GenerateDiff("", *change.NewContent, path)
+			absPath, err := p.workspace.Resolve(path)
+			if err != nil {
+				return toolcore.NewTextErrorResponse(err.Error()), nil
+			}
+			dir := filepath.Dir(absPath)
+			patchDiff, _, _ := diff.GenerateDiff("", *change.NewContent, path, p.workspace.Root)
 			p := p.permissions.Request(
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
 					Path:        dir,
 					ToolName:    PatchToolName,
 					Action:      "create",
-					Description: fmt.Sprintf("Create file %s", path),
+					Description: fmt.Sprintf("Create file %s", absPath),
 					Params: EditPermissionsParams{
-						FilePath: path,
+						FilePath: absPath,
 						Diff:     patchDiff,
 					},
 				},
@@ -218,17 +220,21 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 			if change.NewContent != nil {
 				newContent = *change.NewContent
 			}
-			patchDiff, _, _ := diff.GenerateDiff(currentContent, newContent, path)
-			dir := filepath.Dir(path)
+			patchDiff, _, _ := diff.GenerateDiff(currentContent, newContent, path, p.workspace.Root)
+			absPath, err := p.workspace.Resolve(path)
+			if err != nil {
+				return toolcore.NewTextErrorResponse(err.Error()), nil
+			}
+			dir := filepath.Dir(absPath)
 			p := p.permissions.Request(
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
 					Path:        dir,
 					ToolName:    PatchToolName,
 					Action:      "update",
-					Description: fmt.Sprintf("Update file %s", path),
+					Description: fmt.Sprintf("Update file %s", absPath),
 					Params: EditPermissionsParams{
-						FilePath: path,
+						FilePath: absPath,
 						Diff:     patchDiff,
 					},
 				},
@@ -237,17 +243,21 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 				return toolcore.ToolResponse{}, permission.ErrorPermissionDenied
 			}
 		case diff.ActionDelete:
-			dir := filepath.Dir(path)
-			patchDiff, _, _ := diff.GenerateDiff(*change.OldContent, "", path)
+			absPath, err := p.workspace.Resolve(path)
+			if err != nil {
+				return toolcore.NewTextErrorResponse(err.Error()), nil
+			}
+			dir := filepath.Dir(absPath)
+			patchDiff, _, _ := diff.GenerateDiff(*change.OldContent, "", path, p.workspace.Root)
 			p := p.permissions.Request(
 				permission.CreatePermissionRequest{
 					SessionID:   sessionID,
 					Path:        dir,
 					ToolName:    PatchToolName,
 					Action:      "delete",
-					Description: fmt.Sprintf("Delete file %s", path),
+					Description: fmt.Sprintf("Delete file %s", absPath),
 					Params: EditPermissionsParams{
-						FilePath: path,
+						FilePath: absPath,
 						Diff:     patchDiff,
 					},
 				},
@@ -260,10 +270,9 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 
 	// Apply the changes to the filesystem
 	err = diff.ApplyCommit(commit, func(path string, content string) error {
-		absPath := path
-		if !filepath.IsAbs(absPath) {
-			wd := config.WorkingDirectory()
-			absPath = filepath.Join(wd, absPath)
+		absPath, err := p.workspace.Resolve(path)
+		if err != nil {
+			return err
 		}
 
 		// Create parent directories if needed
@@ -274,10 +283,9 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 
 		return os.WriteFile(absPath, []byte(content), 0o644)
 	}, func(path string) error {
-		absPath := path
-		if !filepath.IsAbs(absPath) {
-			wd := config.WorkingDirectory()
-			absPath = filepath.Join(wd, absPath)
+		absPath, err := p.workspace.Resolve(path)
+		if err != nil {
+			return err
 		}
 		return os.Remove(absPath)
 	})
@@ -292,10 +300,9 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 	hookResults := []toolcore.HookResult{}
 
 	for path, change := range commit.Changes {
-		absPath := path
-		if !filepath.IsAbs(absPath) {
-			wd := config.WorkingDirectory()
-			absPath = filepath.Join(wd, absPath)
+		absPath, err := p.workspace.Resolve(path)
+		if err != nil {
+			return toolcore.NewTextErrorResponse(err.Error()), nil
 		}
 		changedFiles = append(changedFiles, absPath)
 
@@ -310,7 +317,7 @@ func (p *patchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		}
 
 		// Calculate diff statistics
-		patchDiff, additions, removals := diff.GenerateDiff(oldContent, newContent, path)
+		patchDiff, additions, removals := diff.GenerateDiff(oldContent, newContent, path, p.workspace.Root)
 		totalAdditions += additions
 		totalRemovals += removals
 

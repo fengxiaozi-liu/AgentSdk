@@ -7,9 +7,9 @@ import (
 	"ferryman-agent/permission"
 	"ferryman-agent/session"
 	agenttool "ferryman-agent/tools/agent"
-	basetools "ferryman-agent/tools/base"
 	toolcore "ferryman-agent/tools/core"
 	mcptools "ferryman-agent/tools/mcp"
+	basetools "ferryman-agent/tools/workspace"
 )
 
 type toolsetConfig struct {
@@ -18,6 +18,7 @@ type toolsetConfig struct {
 	ctx         context.Context
 	sessions    session.Service
 	messages    message.Service
+	workspace   basetools.Workspace
 	tools       []toolcore.BaseTool
 	fileHooks   []toolcore.FileHook
 	builders    []func(toolsetConfig) []toolcore.BaseTool
@@ -55,6 +56,12 @@ func WithMessages(messages message.Service) Option {
 	}
 }
 
+func WithWorkspace(workspace basetools.Workspace) Option {
+	return func(cfg *toolsetConfig) {
+		cfg.workspace = workspace
+	}
+}
+
 func WithBaseTools(baseTools ...toolcore.BaseTool) Option {
 	return func(cfg *toolsetConfig) {
 		cfg.tools = append(cfg.tools, baseTools...)
@@ -71,13 +78,13 @@ func WithBaseFileTools() Option {
 	return func(cfg *toolsetConfig) {
 		cfg.builders = append(cfg.builders, func(cfg toolsetConfig) []toolcore.BaseTool {
 			baseTools := []toolcore.BaseTool{
-				basetools.NewViewTool(cfg.fileHooks...),
+				basetools.NewViewTool(cfg.workspace, cfg.fileHooks...),
 			}
 			if cfg.permissions != nil && cfg.history != nil {
 				baseTools = append(baseTools,
-					basetools.NewEditTool(cfg.permissions, cfg.history, cfg.fileHooks...),
-					basetools.NewWriteTool(cfg.permissions, cfg.history, cfg.fileHooks...),
-					basetools.NewPatchTool(cfg.permissions, cfg.history, cfg.fileHooks...),
+					basetools.NewEditTool(cfg.workspace, cfg.permissions, cfg.history, cfg.fileHooks...),
+					basetools.NewWriteTool(cfg.workspace, cfg.permissions, cfg.history, cfg.fileHooks...),
+					basetools.NewPatchTool(cfg.workspace, cfg.permissions, cfg.history, cfg.fileHooks...),
 				)
 			}
 			return baseTools

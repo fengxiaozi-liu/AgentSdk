@@ -3,21 +3,22 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	datadb "ferryman-agent/data/db"
 	"ferryman-agent/llm/models"
+
+	"github.com/google/wire"
 )
+
+var ProviderSet = wire.NewSet(DatabaseConfig, WorkingDir)
 
 type MCPType string
 
 const (
-	MCPStdio MCPType = "stdio"
-	MCPSse   MCPType = "sse"
-
-	DefaultDataDirectory = ".ferryer"
-
-	MaxTokensFallbackDefault = 4096
+	MCPStdio                 MCPType = "stdio"
+	MCPSse                   MCPType = "sse"
+	DefaultDataDirectory             = ".ferryer"
+	MaxTokensFallbackDefault         = 4096
 )
 
 type MCPServer struct {
@@ -29,34 +30,44 @@ type MCPServer struct {
 	Headers map[string]string `json:"headers"`
 }
 
-type Provider struct {
-	APIKey   string `json:"apiKey"`
-	Disabled bool   `json:"disabled"`
-}
-
-type Data struct {
-	Directory string `json:"directory,omitempty"`
+type ProviderConfig struct {
+	Provider    models.ModelProvider `json:"provider"`
+	APIKey      string               `json:"apiKey"`
+	BaseURL     string               `json:"baseURL"`
+	ModelConfig ModelConfig          `json:"modelConfig"`
+	Prompt      string               `json:"prompt"`
+	Disabled    bool                 `json:"disabled"`
 }
 
 type ModelConfig struct {
-	Provider        models.ModelProvider `json:"provider"`
-	Model           models.ModelID       `json:"model"`
-	PromptKey       string               `json:"promptKey,omitempty"`
-	MaxTokens       int64                `json:"maxTokens,omitempty"`
-	ReasoningEffort string               `json:"reasoningEffort,omitempty"`
+	Model           models.ModelID `json:"model"`
+	MaxTokens       int64          `json:"maxTokens,omitempty"`
+	ReasoningEffort string         `json:"reasoningEffort,omitempty"`
+}
+type Config struct {
+	WorkingDir         string                `json:"workingDir,omitempty"`
+	Database           datadb.DatabaseConfig `json:"database,omitempty"`
+	MCPServers         map[string]MCPServer  `json:"mcpServers,omitempty"`
+	Provider           ProviderConfig        `json:"provider,omitempty"`
+	TitleProvider      ProviderConfig        `json:"titleProvider"`
+	SummarizerProvider ProviderConfig        `json:"summarizerProvider,omitempty"`
+	Debug              bool                  `json:"debug,omitempty"`
+	AutoCompact        bool                  `json:"autoCompact,omitempty"`
+	PromptConfigPath   string                `json:"promptConfigPath,omitempty"`
 }
 
-type Config struct {
-	Data             Data                              `json:"data"`
-	Database         datadb.DatabaseConfig             `json:"database,omitempty"`
-	WorkingDir       string                            `json:"wd,omitempty"`
-	MCPServers       map[string]MCPServer              `json:"mcpServers,omitempty"`
-	Providers        map[models.ModelProvider]Provider `json:"providers,omitempty"`
-	Model            ModelConfig                       `json:"model,omitempty"`
-	ModelProfiles    map[string]ModelConfig            `json:"modelProfiles,omitempty"`
-	Debug            bool                              `json:"debug,omitempty"`
-	AutoCompact      bool                              `json:"autoCompact,omitempty"`
-	PromptConfigPath string                            `json:"promptConfigPath,omitempty"`
+func DatabaseConfig(config *Config) datadb.DatabaseConfig {
+	if config == nil {
+		return datadb.DatabaseConfig{}
+	}
+	return config.Database
+}
+
+func WorkingDir(config *Config) string {
+	if config == nil {
+		return ""
+	}
+	return config.WorkingDir
 }
 
 func Current() *Config {
@@ -80,17 +91,8 @@ func WithDefaults(config Config) Config {
 			config.WorkingDir = wd
 		}
 	}
-	if config.Data.Directory == "" {
-		config.Data.Directory = DefaultDataDirectory
-	}
 	if config.Database.Type == "" {
 		config.Database.Type = datadb.DatabaseSQLite
-	}
-	if config.Database.Type == datadb.DatabaseSQLite && config.Database.Path == "" && config.Database.DSN == "" {
-		config.Database.Path = filepath.Join(config.Data.Directory, "agent.db")
-	}
-	if config.Providers == nil {
-		config.Providers = make(map[models.ModelProvider]Provider)
 	}
 	if config.MCPServers == nil {
 		config.MCPServers = make(map[string]MCPServer)
@@ -101,31 +103,43 @@ func WithDefaults(config Config) Config {
 			config.MCPServers[name] = server
 		}
 	}
-	if config.ModelProfiles == nil {
-		config.ModelProfiles = make(map[string]ModelConfig)
-	}
 	return config
 }
 
 func Validate(config Config) error {
-	for name, profile := range config.ModelProfiles {
-		if profile.Provider == "" {
-			return fmt.Errorf("model profile %s provider is required", name)
-		}
-		if profile.Model == "" {
-			return fmt.Errorf("model profile %s model is required", name)
-		}
+	if err := validateProviderConfig("provider", config.Provider); err != nil {
+		return err
 	}
-	if config.Model.Model != "" && config.Model.Provider == "" {
-		return fmt.Errorf("model provider is required")
+	if err := validateOptionalProviderConfig("titleProvider", config.TitleProvider); err != nil {
+		return err
 	}
-	if config.Model.Provider != "" && config.Model.Model == "" {
-		return fmt.Errorf("model id is required")
+	if err := validateOptionalProviderConfig("summarizerProvider", config.SummarizerProvider); err != nil {
+		return err
 	}
 	switch config.Database.Type {
 	case "", datadb.DatabaseSQLite, datadb.DatabaseMySQL:
 	default:
 		return fmt.Errorf("unsupported database type: %s", config.Database.Type)
+	}
+	return nil
+}
+
+func validateOptionalProviderConfig(name string, provider ProviderConfig) error {
+	if provider.Provider == "" && provider.ModelConfig.Model == "" && provider.APIKey == "" && provider.BaseURL == "" && provider.Prompt == "" {
+		return nil
+	}
+	return validateProviderConfig(name, provider)
+}
+
+func validateProviderConfig(name string, provider ProviderConfig) error {
+	if provider.Provider == "" && provider.ModelConfig.Model == "" {
+		return nil
+	}
+	if provider.Provider == "" {
+		return fmt.Errorf("%s provider is required", name)
+	}
+	if provider.ModelConfig.Model == "" {
+		return fmt.Errorf("%s model is required", name)
 	}
 	return nil
 }
@@ -140,24 +154,4 @@ func Get() *Config {
 
 func WorkingDirectory() string {
 	return Get().WorkingDir
-}
-
-func ModelProfile(key string) (ModelConfig, bool) {
-	cfg := Get()
-	if key != "" {
-		if profile, ok := cfg.ModelProfiles[key]; ok {
-			if profile.PromptKey == "" {
-				profile.PromptKey = key
-			}
-			return profile, true
-		}
-	}
-	if cfg.Model.Model == "" || cfg.Model.Provider == "" {
-		return ModelConfig{}, false
-	}
-	profile := cfg.Model
-	if profile.PromptKey == "" {
-		profile.PromptKey = key
-	}
-	return profile, true
 }

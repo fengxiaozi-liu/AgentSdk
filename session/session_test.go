@@ -10,7 +10,7 @@ import (
 
 func TestServiceUsesSessionRepo(t *testing.T) {
 	ctx := context.Background()
-	client, err := datadb.Open(datadb.DatabaseConfig{
+	client, err := datadb.NewDbClient(datadb.DatabaseConfig{
 		Type: datadb.DatabaseSQLite,
 		Path: ":memory:",
 	})

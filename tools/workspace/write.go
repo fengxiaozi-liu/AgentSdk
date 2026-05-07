@@ -1,4 +1,4 @@
-package base
+package workspace
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/history"
 	"ferryman-agent/logging"
 	"ferryman-agent/permission"
@@ -29,6 +28,7 @@ type WritePermissionsParams struct {
 }
 
 type writeTool struct {
+	workspace   Workspace
 	permissions permission.Service
 	files       history.Service
 	hooks       *toolcore.FileHookDispatcher
@@ -72,8 +72,9 @@ TIPS:
 - Always include descriptive comments when making changes to existing code`
 )
 
-func NewWriteTool(permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
+func NewWriteTool(workspace Workspace, permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
 	return &writeTool{
+		workspace:   workspace,
 		permissions: permissions,
 		files:       files,
 		hooks:       toolcore.NewFileHookDispatcher(hooks...),
@@ -112,9 +113,9 @@ func (w *writeTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		return toolcore.NewTextErrorResponse("content is required"), nil
 	}
 
-	filePath := params.FilePath
-	if !filepath.IsAbs(filePath) {
-		filePath = filepath.Join(config.WorkingDirectory(), filePath)
+	filePath, err := w.workspace.Resolve(params.FilePath)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
 
 	fileInfo, err := os.Stat(filePath)
@@ -160,9 +161,13 @@ func (w *writeTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		oldContent,
 		params.Content,
 		filePath,
+		w.workspace.Root,
 	)
 
-	rootDir := config.WorkingDirectory()
+	rootDir, err := w.workspace.Resolve("")
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
+	}
 	permissionPath := filepath.Dir(filePath)
 	if strings.HasPrefix(filePath, rootDir) {
 		permissionPath = rootDir

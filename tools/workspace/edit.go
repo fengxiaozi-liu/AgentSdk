@@ -1,4 +1,4 @@
-package base
+package workspace
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/history"
 	"ferryman-agent/logging"
 	"ferryman-agent/permission"
@@ -36,6 +35,7 @@ type EditResponseMetadata struct {
 }
 
 type editTool struct {
+	workspace   Workspace
 	permissions permission.Service
 	files       history.Service
 	hooks       *toolcore.FileHookDispatcher
@@ -92,8 +92,9 @@ When making edits:
 Remember: when making multiple file edits in a row to the same file, you should prefer to send all edits in a single message with multiple calls to this tool, rather than multiple messages with a single call each.`
 )
 
-func NewEditTool(permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
+func NewEditTool(workspace Workspace, permissions permission.Service, files history.Service, hooks ...toolcore.FileHook) toolcore.BaseTool {
 	return &editTool{
+		workspace:   workspace,
 		permissions: permissions,
 		files:       files,
 		hooks:       toolcore.NewFileHookDispatcher(hooks...),
@@ -132,13 +133,13 @@ func (e *editTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 		return toolcore.NewTextErrorResponse("file_path is required"), nil
 	}
 
-	if !filepath.IsAbs(params.FilePath) {
-		wd := config.WorkingDirectory()
-		params.FilePath = filepath.Join(wd, params.FilePath)
+	filePath, err := e.workspace.Resolve(params.FilePath)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
+	params.FilePath = filePath
 
 	var response toolcore.ToolResponse
-	var err error
 
 	switch {
 	case params.OldString == "":
@@ -187,11 +188,11 @@ func (e *editTool) createNewFile(ctx context.Context, toolCallID, filePath, cont
 		"",
 		content,
 		filePath,
+		e.workspace.Root,
 	)
-	rootDir := config.WorkingDirectory()
-	permissionPath := filepath.Dir(filePath)
-	if strings.HasPrefix(filePath, rootDir) {
-		permissionPath = rootDir
+	permissionPath, err := e.permissionPath(filePath)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
 	p := e.permissions.Request(
 		permission.CreatePermissionRequest{
@@ -311,12 +312,12 @@ func (e *editTool) deleteContent(ctx context.Context, toolCallID, filePath, oldS
 		oldContent,
 		newContent,
 		filePath,
+		e.workspace.Root,
 	)
 
-	rootDir := config.WorkingDirectory()
-	permissionPath := filepath.Dir(filePath)
-	if strings.HasPrefix(filePath, rootDir) {
-		permissionPath = rootDir
+	permissionPath, err := e.permissionPath(filePath)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
 	p := e.permissions.Request(
 		permission.CreatePermissionRequest{
@@ -447,11 +448,11 @@ func (e *editTool) replaceContent(ctx context.Context, toolCallID, filePath, old
 		oldContent,
 		newContent,
 		filePath,
+		e.workspace.Root,
 	)
-	rootDir := config.WorkingDirectory()
-	permissionPath := filepath.Dir(filePath)
-	if strings.HasPrefix(filePath, rootDir) {
-		permissionPath = rootDir
+	permissionPath, err := e.permissionPath(filePath)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
 	p := e.permissions.Request(
 		permission.CreatePermissionRequest{
@@ -522,4 +523,16 @@ func (e *editTool) replaceContent(ctx context.Context, toolCallID, filePath, old
 			"removals":  removals,
 		},
 	})), nil
+}
+
+func (e *editTool) permissionPath(filePath string) (string, error) {
+	rootDir, err := e.workspace.Resolve("")
+	if err != nil {
+		return "", err
+	}
+	permissionPath := filepath.Dir(filePath)
+	if strings.HasPrefix(filePath, rootDir) {
+		permissionPath = rootDir
+	}
+	return permissionPath, nil
 }

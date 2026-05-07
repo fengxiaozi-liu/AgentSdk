@@ -9,6 +9,7 @@ import (
 	"time"
 
 	sdkconfig "ferryman-agent/config"
+	"ferryman-agent/history"
 	"ferryman-agent/llm/models"
 	"ferryman-agent/llm/provider"
 	"ferryman-agent/logging"
@@ -35,11 +36,9 @@ const (
 )
 
 type AgentEvent struct {
-	Type    AgentEventType
-	Message message.Message
-	Error   error
-
-	// When summarizing
+	Type      AgentEventType
+	Message   message.Message
+	Error     error
 	SessionID string
 	Progress  string
 	Done      bool
@@ -58,55 +57,70 @@ type Service interface {
 
 type agent struct {
 	*pubsub.Broker[AgentEvent]
-	sessions session.Service //
-	messages message.Service
-
-	tools    []toolcore.BaseTool
-	provider provider.Provider
-
+	config            sdkconfig.Config
+	sessions          session.Service //
+	messages          message.Service
+	tools             []toolcore.BaseTool
+	provider          provider.Provider
 	titleProvider     provider.Provider
 	summarizeProvider provider.Provider
+	activeRequests    sync.Map
+}
 
-	activeRequests sync.Map
+func MainAgent(cfg sdkconfig.Config) (Service, error) {
+	runtimeCfg, err := sdkconfig.Use(cfg)
+	if err != nil {
+		return nil, err
+	}
+	container, err := wireContainer(runtimeCfg)
+	if err != nil {
+		return nil, err
+	}
+	return NewAgent(
+		*runtimeCfg,
+		container.Sessions,
+		container.Messages,
+		container.History,
+		container.Tools,
+	)
 }
 
 func NewAgent(
-	profileKey string,
+	cfg sdkconfig.Config,
 	sessions session.Service,
 	messages message.Service,
-	agentTools []toolcore.BaseTool,
+	_ history.Service,
+	tools []toolcore.BaseTool,
 ) (Service, error) {
-	agentProvider, err := createAgentProvider(profileKey)
+	agentProvider, err := createProvider(cfg.Provider, "coder")
 	if err != nil {
 		return nil, err
 	}
 	var titleProvider provider.Provider
-	if _, ok := sdkconfig.ModelProfile("title"); ok {
-		titleProvider, err = createAgentProvider("title")
+	if providerConfigured(cfg.TitleProvider) {
+		titleProvider, err = createProvider(cfg.TitleProvider, "title")
 		if err != nil {
 			return nil, err
 		}
 	}
 	var summarizeProvider provider.Provider
-	if _, ok := sdkconfig.ModelProfile("summarizer"); ok {
-		summarizeProvider, err = createAgentProvider("summarizer")
+	if providerConfigured(cfg.SummarizerProvider) {
+		summarizeProvider, err = createProvider(cfg.SummarizerProvider, "summarizer")
 		if err != nil {
 			return nil, err
 		}
 	}
-
-	agent := &agent{
+	return &agent{
 		Broker:            pubsub.NewBroker[AgentEvent](),
-		provider:          agentProvider,
-		messages:          messages,
+		config:            cfg,
 		sessions:          sessions,
-		tools:             agentTools,
+		messages:          messages,
+		tools:             tools,
+		provider:          agentProvider,
 		titleProvider:     titleProvider,
 		summarizeProvider: summarizeProvider,
 		activeRequests:    sync.Map{},
-	}
-
-	return agent, nil
+	}, nil
 }
 
 func (a *agent) Model() models.Model {
@@ -517,19 +531,11 @@ func (a *agent) Update(profileKey string, modelID models.ModelID) (models.Model,
 	if a.IsBusy() {
 		return models.Model{}, fmt.Errorf("cannot change model while processing requests")
 	}
-
-	cfg := sdkconfig.Get()
-	profile, ok := sdkconfig.ModelProfile(profileKey)
-	if !ok {
-		return models.Model{}, fmt.Errorf("model profile %s not found", profileKey)
+	if profileKey != "" && profileKey != "coder" {
+		return models.Model{}, fmt.Errorf("model profile %s not supported", profileKey)
 	}
-	profile.Model = modelID
-	if profileKey == "" {
-		cfg.Model = profile
-	} else {
-		cfg.ModelProfiles[profileKey] = profile
-	}
-	provider, err := createAgentProvider(profileKey)
+	a.config.Provider.ModelConfig.Model = modelID
+	provider, err := createProvider(a.config.Provider, "coder")
 	if err != nil {
 		return models.Model{}, fmt.Errorf("failed to create provider for model %s: %w", modelID, err)
 	}
@@ -710,36 +716,30 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-func createAgentProvider(profileKey string) (provider.Provider, error) {
-	cfg := sdkconfig.Current()
-	agentConfig, ok := sdkconfig.ModelProfile(profileKey)
-	if !ok {
-		return nil, fmt.Errorf("model profile %s not found", profileKey)
-	}
-	providerName := agentConfig.Provider
-	if providerName == "" {
-		return nil, fmt.Errorf("provider is required for model %s", agentConfig.Model)
-	}
-	model := models.ResolveModel(providerName, agentConfig.Model)
+func providerConfigured(providerCfg sdkconfig.ProviderConfig) bool {
+	return providerCfg.Provider != "" || providerCfg.ModelConfig.Model != ""
+}
 
-	providerCfg, ok := cfg.Providers[providerName]
-	if !ok {
-		return nil, fmt.Errorf("provider %s not supported", providerName)
+func createProvider(providerCfg sdkconfig.ProviderConfig, promptKey string) (provider.Provider, error) {
+	providerName := providerCfg.Provider
+	if providerName == "" {
+		return nil, fmt.Errorf("provider is required for model %s", providerCfg.ModelConfig.Model)
 	}
 	if providerCfg.Disabled {
 		return nil, fmt.Errorf("provider %s is not enabled", providerName)
 	}
+	model := models.ResolveModel(providerName, providerCfg.ModelConfig.Model)
 	maxTokens := model.DefaultMaxTokens
-	if agentConfig.MaxTokens > 0 {
-		maxTokens = agentConfig.MaxTokens
+	if providerCfg.ModelConfig.MaxTokens > 0 {
+		maxTokens = providerCfg.ModelConfig.MaxTokens
 	}
-	promptKey := agentConfig.PromptKey
-	if promptKey == "" {
-		promptKey = profileKey
-	}
-	systemPrompt, err := prompt.ResolveSystemPromptByKey(promptKey)
-	if err != nil {
-		systemPrompt = "You are a helpful assistant."
+	systemPrompt := providerCfg.Prompt
+	if strings.TrimSpace(systemPrompt) == "" {
+		resolvedPrompt, err := prompt.ResolveSystemPromptByKey(promptKey)
+		if err != nil {
+			resolvedPrompt = "You are a helpful assistant."
+		}
+		systemPrompt = resolvedPrompt
 	}
 	opts := []provider.ProviderClientOption{
 		provider.WithAPIKey(providerCfg.APIKey),
@@ -751,7 +751,7 @@ func createAgentProvider(profileKey string) (provider.Provider, error) {
 		opts = append(
 			opts,
 			provider.WithOpenAIOptions(
-				provider.WithReasoningEffort(agentConfig.ReasoningEffort),
+				provider.WithReasoningEffort(providerCfg.ModelConfig.ReasoningEffort),
 			),
 		)
 	} else if providerName == models.ProviderAnthropic && model.CanReason {
@@ -761,6 +761,12 @@ func createAgentProvider(profileKey string) (provider.Provider, error) {
 				provider.WithAnthropicShouldThinkFn(provider.DefaultShouldThinkFn),
 			),
 		)
+	}
+	if providerCfg.BaseURL != "" {
+		switch providerName {
+		case models.ProviderOpenAI, models.ProviderGROQ, models.ProviderOpenRouter, models.ProviderXAI, models.ProviderLocal:
+			opts = append(opts, provider.WithOpenAIOptions(provider.WithOpenAIBaseURL(providerCfg.BaseURL)))
+		}
 	}
 	agentProvider, err := provider.NewProvider(
 		providerName,

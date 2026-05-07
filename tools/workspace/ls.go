@@ -1,4 +1,4 @@
-package base
+package workspace
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"ferryman-agent/config"
 )
 
 type LSParams struct {
@@ -29,7 +27,9 @@ type LSResponseMetadata struct {
 	Truncated     bool `json:"truncated"`
 }
 
-type lsTool struct{}
+type lsTool struct {
+	workspace Workspace
+}
 
 const (
 	LSToolName    = "ls"
@@ -64,8 +64,8 @@ TIPS:
 - Combine with other tools for more effective exploration`
 )
 
-func NewLsTool() toolcore.BaseTool {
-	return &lsTool{}
+func NewLsTool(workspace Workspace) toolcore.BaseTool {
+	return &lsTool{workspace: workspace}
 }
 
 func (l *lsTool) Info() toolcore.ToolInfo {
@@ -95,13 +95,9 @@ func (l *lsTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.Tool
 		return toolcore.NewTextErrorResponse(fmt.Sprintf("error parsing parameters: %s", err)), nil
 	}
 
-	searchPath := params.Path
-	if searchPath == "" {
-		searchPath = workingDirectory()
-	}
-
-	if !filepath.IsAbs(searchPath) {
-		searchPath = filepath.Join(workingDirectory(), searchPath)
+	searchPath, err := l.workspace.Resolve(params.Path)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
 
 	if _, err := os.Stat(searchPath); os.IsNotExist(err) {
@@ -127,19 +123,6 @@ func (l *lsTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.Tool
 			Truncated:     truncated,
 		},
 	), nil
-}
-
-func workingDirectory() string {
-	cfg := config.Get()
-	if cfg != nil && cfg.WorkingDir != "" {
-		return cfg.WorkingDir
-	}
-
-	wd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	return wd
 }
 
 func listDirectory(initialPath string, ignorePatterns []string, limit int) ([]string, bool, error) {

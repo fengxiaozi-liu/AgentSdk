@@ -9,8 +9,12 @@ import (
 	"ferryman-agent/data/repo"
 	"ferryman-agent/llm/models"
 	"ferryman-agent/pubsub"
+
 	"github.com/google/uuid"
+	"github.com/google/wire"
 )
+
+var ProviderSet = wire.NewSet(NewService)
 
 type CreateMessageParams struct {
 	Role  MessageRole

@@ -1,4 +1,4 @@
-package base
+package workspace
 
 import (
 	"bytes"
@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"ferryman-agent/config"
 	"ferryman-agent/logging"
 	"ferryman-agent/utils/fileutil"
 )
@@ -64,10 +63,12 @@ type GlobResponseMetadata struct {
 	Truncated     bool `json:"truncated"`
 }
 
-type globTool struct{}
+type globTool struct {
+	workspace Workspace
+}
 
-func NewGlobTool() toolcore.BaseTool {
-	return &globTool{}
+func NewGlobTool(workspace Workspace) toolcore.BaseTool {
+	return &globTool{workspace: workspace}
 }
 
 func (g *globTool) Info() toolcore.ToolInfo {
@@ -98,9 +99,9 @@ func (g *globTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.To
 		return toolcore.NewTextErrorResponse("pattern is required"), nil
 	}
 
-	searchPath := params.Path
-	if searchPath == "" {
-		searchPath = config.WorkingDirectory()
+	searchPath, err := g.workspace.Resolve(params.Path)
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
 	}
 
 	files, truncated, err := globFiles(params.Pattern, searchPath, 100)

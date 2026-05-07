@@ -1,4 +1,4 @@
-package base
+package workspace
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/config"
 	"ferryman-agent/permission"
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
@@ -29,6 +28,7 @@ type FetchPermissionsParams struct {
 }
 
 type fetchTool struct {
+	workspace   Workspace
 	client      *http.Client
 	permissions permission.Service
 }
@@ -66,8 +66,9 @@ TIPS:
 - Set appropriate timeouts for potentially slow websites`
 )
 
-func NewFetchTool(permissions permission.Service) toolcore.BaseTool {
+func NewFetchTool(workspace Workspace, permissions permission.Service) toolcore.BaseTool {
 	return &fetchTool{
+		workspace: workspace,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -122,10 +123,14 @@ func (t *fetchTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		return toolcore.ToolResponse{}, fmt.Errorf("session ID and message ID are required for creating a new file")
 	}
 
+	root, err := t.workspace.Resolve("")
+	if err != nil {
+		return toolcore.NewTextErrorResponse(err.Error()), nil
+	}
 	p := t.permissions.Request(
 		permission.CreatePermissionRequest{
 			SessionID:   sessionID,
-			Path:        config.WorkingDirectory(),
+			Path:        root,
 			ToolName:    FetchToolName,
 			Action:      "fetch",
 			Description: fmt.Sprintf("Fetch content from URL: %s", params.URL),

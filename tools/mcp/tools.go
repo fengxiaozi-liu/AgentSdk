@@ -21,6 +21,15 @@ type mcpTool struct {
 	permissions permission.Service
 }
 
+func NewMcpTool(name string, tool mcp.Tool, permissions permission.Service, mcpConfig config.MCPServer) toolcore.BaseTool {
+	return &mcpTool{
+		mcpName:     name,
+		tool:        tool,
+		mcpConfig:   mcpConfig,
+		permissions: permissions,
+	}
+}
+
 type MCPClient interface {
 	Initialize(
 		ctx context.Context,
@@ -125,15 +134,6 @@ func (b *mcpTool) Run(ctx context.Context, params toolcore.ToolCall) (toolcore.T
 	}
 
 	return toolcore.NewTextErrorResponse("invalid mcp type"), nil
-}
-
-func NewMcpTool(name string, tool mcp.Tool, permissions permission.Service, mcpConfig config.MCPServer) toolcore.BaseTool {
-	return &mcpTool{
-		mcpName:     name,
-		tool:        tool,
-		mcpConfig:   mcpConfig,
-		permissions: permissions,
-	}
 }
 
 var mcpTools []toolcore.BaseTool

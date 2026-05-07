@@ -3,31 +3,32 @@ package agenttool
 import (
 	"context"
 	"encoding/json"
-	agent "ferryman-agent"
+	"ferryman-agent/agent"
+	sdkconfig "ferryman-agent/config"
 	"fmt"
 
 	"ferryman-agent/message"
 	"ferryman-agent/session"
-	basetools "ferryman-agent/tools/base"
 	toolcore "ferryman-agent/tools/core"
-)
-
-type Tool struct {
-	sessions session.Service
-	messages message.Service
-}
-
-const (
-	Name = "agent"
+	basetools "ferryman-agent/tools/workspace"
 )
 
 type Params struct {
 	Prompt string `json:"prompt"`
 }
 
-func (b *Tool) Info() toolcore.ToolInfo {
+type AgentTool struct {
+	sessions session.Service
+	messages message.Service
+}
+
+func NewAgentTool(sessions session.Service, messages message.Service) *AgentTool {
+	return &AgentTool{sessions: sessions, messages: messages}
+}
+
+func (b *AgentTool) Info() toolcore.ToolInfo {
 	return toolcore.ToolInfo{
-		Name:        Name,
+		Name:        "agent_tool",
 		Description: "Launch a new agent that has access to the following tools: GlobTool, GrepTool, LS, View. When you are searching for a keyword or file and are not confident that you will find the right match on the first try, use the Agent tool to perform the search for you. For example:\n\n- If you are searching for a keyword like \"config\" or \"logger\", or for questions like \"which file does X?\", the Agent tool is strongly recommended\n- If you want to read a specific file path, use the View or GlobTool tool instead of the Agent tool, to find the match more quickly\n- If you are searching for a specific class definition like \"class Foo\", use the GlobTool tool instead, to find the match more quickly\n\nUsage notes:\n1. Launch multiple agents concurrently whenever possible, to maximize performance; to do that, use a single message with multiple tool uses\n2. When the agent is done, it will return a single message back to you. The result returned by the agent is not visible to the user. To show the user the result, you should send a text message back to the user with a concise summary of the result.\n3. Each agent invocation is stateless. You will not be able to send additional messages to the agent, nor will the agent be able to communicate with you outside of its final report. Therefore, your prompt should contain a highly detailed task description for the agent to perform autonomously and you should specify exactly what information the agent should return back to you in its final and only message to you.\n4. The agent's outputs should generally be trusted\n5. IMPORTANT: The agent can not use Bash, Replace, Edit, so can not modify files. If you want to use these tools, use them directly instead of going through the agent.",
 		Parameters: map[string]any{
 			"prompt": map[string]any{
@@ -39,7 +40,7 @@ func (b *Tool) Info() toolcore.ToolInfo {
 	}
 }
 
-func (b *Tool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.ToolResponse, error) {
+func (b *AgentTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.ToolResponse, error) {
 	var params Params
 	if err := json.Unmarshal([]byte(call.Input), &params); err != nil {
 		return toolcore.NewTextErrorResponse(fmt.Sprintf("error parsing parameters: %s", err)), nil
@@ -52,17 +53,19 @@ func (b *Tool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.ToolRe
 	if sessionID == "" || messageID == "" {
 		return toolcore.ToolResponse{}, fmt.Errorf("session_id and message_id are required")
 	}
+	ws := basetools.Workspace{Root: sdkconfig.Get().WorkingDir}
 
 	runner, err := agent.NewAgent(
-		"task",
+		*sdkconfig.Get(),
 		b.sessions,
 		b.messages,
+		nil,
 		[]toolcore.BaseTool{
-			basetools.NewGlobTool(),
-			basetools.NewGrepTool(),
-			basetools.NewLsTool(),
+			basetools.NewGlobTool(ws),
+			basetools.NewGrepTool(ws),
+			basetools.NewLsTool(ws),
 			basetools.NewSourcegraphTool(),
-			basetools.NewViewTool(),
+			basetools.NewViewTool(ws),
 		},
 	)
 	if err != nil {
@@ -110,7 +113,7 @@ func New(
 	sessions session.Service,
 	messages message.Service,
 ) toolcore.BaseTool {
-	return &Tool{
+	return &AgentTool{
 		sessions: sessions,
 		messages: messages,
 	}

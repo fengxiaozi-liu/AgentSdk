@@ -8,10 +8,13 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/google/wire"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+var ProviderSet = wire.NewSet(NewDbClient)
 
 type DatabaseType string
 
@@ -47,7 +50,7 @@ type DbClient struct {
 	Config DatabaseConfig
 }
 
-func Open(cfg DatabaseConfig) (*DbClient, error) {
+func NewDbClient(cfg DatabaseConfig) (*DbClient, error) {
 	if cfg.Type == "" {
 		cfg.Type = DatabaseSQLite
 	}
