@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/internal/service/permission"
+	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
 	"ferryman-agent/internal/utils/shell"
 )

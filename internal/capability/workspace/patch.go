@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"ferryman-agent/internal/data/logging"
-	"ferryman-agent/internal/service/history"
-	"ferryman-agent/internal/service/permission"
+	"ferryman-agent/internal/memory/history"
+	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
 	"ferryman-agent/internal/utils/diff"
 	"ferryman-agent/internal/utils/fileutil"

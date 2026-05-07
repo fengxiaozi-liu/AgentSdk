@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	basetools "ferryman-agent/internal/capability/workspace"
 	sdkconfig "ferryman-agent/internal/config"
-	"ferryman-agent/internal/service/message"
-	"ferryman-agent/internal/service/prompt"
-	"ferryman-agent/internal/service/session"
+	"ferryman-agent/internal/memory/message"
+	"ferryman-agent/internal/memory/session"
+	"ferryman-agent/internal/prompt"
 	toolcore "ferryman-agent/internal/tools"
-	basetools "ferryman-agent/internal/tools/workspace"
 )
 
 type agentToolParams struct {

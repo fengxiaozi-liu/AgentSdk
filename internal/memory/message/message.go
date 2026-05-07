@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/data/repo"
-	"ferryman-agent/internal/llm/models"
 	"ferryman-agent/internal/pubsub"
 
 	"github.com/google/uuid"

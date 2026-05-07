@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"ferryman-agent/internal/data/logging"
-	"ferryman-agent/internal/service/message"
+	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
 	"github.com/google/uuid"
 	"google.golang.org/genai"

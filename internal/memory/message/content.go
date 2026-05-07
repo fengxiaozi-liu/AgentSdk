@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"ferryman-agent/internal/llm/models"
+	"ferryman-agent/internal/data/llm/models"
 )
 
 type MessageRole string

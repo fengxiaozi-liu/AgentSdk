@@ -2,16 +2,16 @@ package agent
 
 import (
 	"context"
+	mcptools "ferryman-agent/internal/capability/mcp"
+	workspace "ferryman-agent/internal/capability/workspace"
 	datadb "ferryman-agent/internal/data/db"
 	"ferryman-agent/internal/data/repo"
-	mcptools "ferryman-agent/internal/mcp"
-	"ferryman-agent/internal/service/history"
-	"ferryman-agent/internal/service/message"
-	"ferryman-agent/internal/service/permission"
-	"ferryman-agent/internal/service/prompt"
-	"ferryman-agent/internal/service/session"
+	"ferryman-agent/internal/memory/history"
+	"ferryman-agent/internal/memory/message"
+	"ferryman-agent/internal/memory/session"
+	"ferryman-agent/internal/prompt"
+	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
-	workspace "ferryman-agent/internal/tools/workspace"
 )
 
 type Container struct {

@@ -5,8 +5,8 @@ import (
 	"os"
 
 	datadb "ferryman-agent/internal/data/db"
-	"ferryman-agent/internal/llm/provider"
-	"ferryman-agent/internal/service/prompt"
+	"ferryman-agent/internal/data/llm/provider"
+	"ferryman-agent/internal/prompt"
 
 	"github.com/google/wire"
 )

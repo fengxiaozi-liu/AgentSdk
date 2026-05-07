@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	datadb "ferryman-agent/internal/data/db"
-	"ferryman-agent/internal/llm/models"
-	"ferryman-agent/internal/llm/provider"
+	"ferryman-agent/internal/data/llm/models"
+	"ferryman-agent/internal/data/llm/provider"
 )
 
 func resetConfigForTest() {

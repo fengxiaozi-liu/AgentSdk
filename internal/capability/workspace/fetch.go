@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"ferryman-agent/internal/service/permission"
+	"ferryman-agent/internal/security/permission"
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
 )

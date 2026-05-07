@@ -7,7 +7,7 @@ import (
 
 	"ferryman-agent/internal/config"
 	"ferryman-agent/internal/data/logging"
-	"ferryman-agent/internal/service/permission"
+	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
 
 	"github.com/mark3labs/mcp-go/client"

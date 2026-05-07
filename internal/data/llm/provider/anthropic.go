@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/data/logging"
-	"ferryman-agent/internal/llm/models"
-	"ferryman-agent/internal/service/message"
+	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"

@@ -3,15 +3,15 @@
 package agent
 
 import (
+	"ferryman-agent/internal/capability/workspace"
 	"ferryman-agent/internal/config"
 	"ferryman-agent/internal/data/db"
 	"ferryman-agent/internal/data/repo"
-	"ferryman-agent/internal/service/history"
-	"ferryman-agent/internal/service/message"
-	"ferryman-agent/internal/service/permission"
-	"ferryman-agent/internal/service/prompt"
-	"ferryman-agent/internal/service/session"
-	"ferryman-agent/internal/tools/workspace"
+	"ferryman-agent/internal/memory/history"
+	"ferryman-agent/internal/memory/message"
+	"ferryman-agent/internal/memory/session"
+	"ferryman-agent/internal/prompt"
+	"ferryman-agent/internal/security/permission"
 
 	"github.com/google/wire"
 )

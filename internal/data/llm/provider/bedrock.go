@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"ferryman-agent/internal/service/message"
+	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
 )
 
