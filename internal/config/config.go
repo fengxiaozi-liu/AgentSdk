@@ -1,17 +1,18 @@
 package config
 
 import (
-	"encoding/json"
+	datadb "ferryman-agent/internal/data/db"
 	"ferryman-agent/internal/data/llm/models"
 	"fmt"
 	"os"
 
 	"ferryman-agent/internal/prompt"
+	providersvc "ferryman-agent/internal/provider"
 
 	"github.com/google/wire"
 )
 
-var ProviderSet = wire.NewSet(ProvideDatabaseConfig, WorkingDir, Prompt)
+var ProviderSet = wire.NewSet(ProvideDatabaseConfig, WorkingDir, Prompt, ProviderRegisters)
 
 type MCPType string
 
@@ -20,9 +21,20 @@ const (
 	MCPSse                   MCPType = "sse"
 	DefaultDataDirectory             = ".ferryer"
 	MaxTokensFallbackDefault         = 200000
+	DatabaseSQLite                   = datadb.DatabaseSQLite
+	DatabaseMySQL                    = datadb.DatabaseMySQL
 )
 
 var cfg *Config
+
+type DatabaseConfig = datadb.DatabaseConfig
+type DatabaseType = datadb.DatabaseType
+type ProviderConfig = providersvc.ProviderRegister
+type ModelConfig = providersvc.ModelRegister
+
+func ApplyModelConfig(model models.Model, modelCfg ModelConfig) models.Model {
+	return providersvc.ApplyModelConfig(model, modelCfg)
+}
 
 type MCPServer struct {
 	Command string            `json:"command"`
@@ -31,92 +43,6 @@ type MCPServer struct {
 	Type    MCPType           `json:"type"`
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers"`
-}
-
-type DatabaseType string
-
-const (
-	DatabaseSQLite DatabaseType = "sqlite"
-	DatabaseMySQL  DatabaseType = "mysql"
-)
-
-type DatabaseConfig struct {
-	Type DatabaseType `json:"type"`
-	DSN  string       `json:"dsn,omitempty"`
-
-	Path string `json:"path,omitempty"`
-
-	Host      string `json:"host,omitempty"`
-	Port      int    `json:"port,omitempty"`
-	Username  string `json:"username,omitempty"`
-	Password  string `json:"password,omitempty"`
-	Database  string `json:"database,omitempty"`
-	Charset   string `json:"charset,omitempty"`
-	ParseTime bool   `json:"parseTime,omitempty"`
-	Loc       string `json:"loc,omitempty"`
-
-	AutoMigrate         bool   `json:"autoMigrate,omitempty"`
-	MaxOpenConns        int    `json:"maxOpenConns,omitempty"`
-	MaxIdleConns        int    `json:"maxIdleConns,omitempty"`
-	ConnMaxLifetimeSecs int    `json:"connMaxLifetimeSecs,omitempty"`
-	LogLevel            string `json:"logLevel,omitempty"`
-}
-
-type ModelConfig struct {
-	ModelId         models.ModelID `json:"model_id"`
-	APIModel        string         `json:"api_model"`
-	MaxTokens       int64          `json:"maxTokens,omitempty"`
-	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
-	Weight          int            `json:"weight,omitempty"`
-	Priority        int            `json:"priority,omitempty"`
-}
-
-func ApplyModelConfig(model models.Model, modelCfg ModelConfig) models.Model {
-	if modelCfg.APIModel != "" {
-		model.APIModel = modelCfg.APIModel
-	}
-	if modelCfg.MaxTokens > 0 {
-		model.MaxTokens = modelCfg.MaxTokens
-	}
-	if modelCfg.ReasoningEffort != "" {
-		model.ReasoningEffort = modelCfg.ReasoningEffort
-	}
-	return model
-}
-
-type ProviderConfig struct {
-	Provider models.ModelProvider `json:"provider"`
-	APIKey   string               `json:"apiKey"`
-	BaseURL  string               `json:"baseURL"`
-	Models   []ModelConfig        `json:"models"`
-	Disabled bool                 `json:"disabled"`
-
-	hasLegacyModelConfig bool
-}
-
-func (p *ProviderConfig) UnmarshalJSON(data []byte) error {
-	type providerConfigAlias ProviderConfig
-	var raw struct {
-		providerConfigAlias
-		ModelConfig json.RawMessage `json:"modelConfig"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	*p = ProviderConfig(raw.providerConfigAlias)
-	p.hasLegacyModelConfig = len(raw.ModelConfig) > 0 && string(raw.ModelConfig) != "null"
-	return nil
-}
-
-func (p ProviderConfig) Configured() bool {
-	return p.Provider != "" || p.APIKey != "" || p.BaseURL != "" || len(p.Models) > 0 || p.hasLegacyModelConfig
-}
-
-func (p ProviderConfig) PrimaryModelConfig() (ModelConfig, bool) {
-	if len(p.Models) == 0 {
-		return ModelConfig{}, false
-	}
-	return p.Models[0], true
 }
 
 type AgentModelConfig struct {
@@ -211,6 +137,13 @@ func WithDefaults(config Config) Config {
 	return config
 }
 
+func ProviderRegisters(config *Config) []providersvc.ProviderRegister {
+	if config == nil {
+		return nil
+	}
+	return ProviderConfigs(*config)
+}
+
 func ProviderConfigs(config Config) []ProviderConfig {
 	if len(config.Providers) > 0 {
 		return config.Providers
@@ -290,7 +223,7 @@ func validateOptionalProviderConfig(name string, providerCfg ProviderConfig) err
 }
 
 func validateProviderConfig(name string, providerCfg ProviderConfig) error {
-	if providerCfg.hasLegacyModelConfig {
+	if providerCfg.HasLegacyModelConfig() {
 		return fmt.Errorf("%s modelConfig is not supported; use models", name)
 	}
 	if !providerCfg.Configured() {

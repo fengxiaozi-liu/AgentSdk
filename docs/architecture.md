@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | Agent 运行时 | `internal/agent` | 运行对话、流式传递 Provider 事件、执行工具、记录用量，并发布 Agent 事件。 |
 | 配置 | `internal/config` | 定义 SDK 配置结构、默认值、校验逻辑，以及用于宿主注入配置的显式 `Use` 入口。 |
-| Providers | `internal/data/llm/provider`、`internal/data/llm/provider/client` | `provider` 保留工厂和公共接口，`provider/client` 适配 OpenAI-compatible、Anthropic、Gemini、Bedrock、Azure、Copilot、VertexAI、OpenRouter、GROQ、XAI、本地和 mock Provider。 |
+| Providers | `internal/provider`、`internal/data/llm/client` | `internal/provider` 提供 Provider 服务与目标选择，`internal/data/llm/client` 适配 OpenAI-compatible、Anthropic、Gemini、Bedrock、Azure、Copilot、VertexAI、OpenRouter、GROQ、XAI、本地和 mock Provider。 |
 | 模型元数据 | `internal/data/llm/models` | 定义 `Model`、Provider/Model ID，并从 `models.json` 加载按 Provider 划分的模型示例。 |
 | Prompt 解析器 | `internal/prompt` | 加载 JSON/YAML prompt 配置，并按 key 解析 system prompt。默认 prompt 位于 `internal/prompt/prompts.json`。 |
 | 数据源 | `internal/data/db` | 打开基于 gorm 的 sqlite/mysql 连接，并负责数据库模型和迁移。 |
@@ -39,7 +39,7 @@ graph TD
     Agent --> Config[internal/config.Current]
     Agent --> Sessions[internal/memory/session.Service]
     Agent --> Messages[internal/memory/message.Service]
-    Agent --> Provider[internal/data/llm/provider.Provider]
+    Agent --> Provider[internal/provider.Service]
     Agent --> Tools[internal/tools.BaseTool set]
     Sessions --> Repos[internal/data/repo]
     Messages --> Repos

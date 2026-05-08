@@ -1,7 +1,6 @@
 package db
 
 import (
-	"ferryman-agent/internal/config"
 	"fmt"
 	"net/url"
 	"os"
@@ -17,13 +16,31 @@ import (
 
 var ProviderSet = wire.NewSet(NewDbClient)
 
+type DatabaseType string
+
 const (
-	DatabaseSQLite = config.DatabaseSQLite
-	DatabaseMySQL  = config.DatabaseMySQL
+	DatabaseSQLite DatabaseType = "sqlite"
+	DatabaseMySQL  DatabaseType = "mysql"
 )
 
-type DatabaseConfig = config.DatabaseConfig
-type DatabaseType = config.DatabaseType
+type DatabaseConfig struct {
+	Type                DatabaseType `json:"type"`
+	DSN                 string       `json:"dsn,omitempty"`
+	Path                string       `json:"path,omitempty"`
+	Host                string       `json:"host,omitempty"`
+	Port                int          `json:"port,omitempty"`
+	Username            string       `json:"username,omitempty"`
+	Password            string       `json:"password,omitempty"`
+	Database            string       `json:"database,omitempty"`
+	Charset             string       `json:"charset,omitempty"`
+	ParseTime           bool         `json:"parseTime,omitempty"`
+	Loc                 string       `json:"loc,omitempty"`
+	AutoMigrate         bool         `json:"autoMigrate,omitempty"`
+	MaxOpenConns        int          `json:"maxOpenConns,omitempty"`
+	MaxIdleConns        int          `json:"maxIdleConns,omitempty"`
+	ConnMaxLifetimeSecs int          `json:"connMaxLifetimeSecs,omitempty"`
+	LogLevel            string       `json:"logLevel,omitempty"`
+}
 
 type DbClient struct {
 	DB     *gorm.DB

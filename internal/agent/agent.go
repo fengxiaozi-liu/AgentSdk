@@ -82,6 +82,8 @@ type llmAgentRuntime struct {
 }
 
 func MainAgent(cfg sdkconfig.Config, opts ...AgentOption) (Service, error) {
+	agentOpts := applyAgentOptions(opts...)
+	applyConfigAgentOptions(&cfg, agentOpts)
 	runtimeCfg, err := sdkconfig.Use(cfg)
 	if err != nil {
 		return nil, err
@@ -114,8 +116,9 @@ func NewAgent(
 	providerService providersvc.Service,
 	opts ...AgentOption,
 ) (Service, error) {
-	cfg = sdkconfig.WithDefaults(cfg)
 	agentOpts := applyAgentOptions(opts...)
+	applyConfigAgentOptions(&cfg, agentOpts)
+	cfg = sdkconfig.WithDefaults(cfg)
 	if agentOpts.enableWorkSpaceTool {
 		agentOpts.tools = append(agentOpts.tools,
 			workspace.NewGlobTool(ws),
@@ -142,7 +145,7 @@ func NewAgent(
 	}
 	if providerService == nil {
 		var err error
-		providerService, err = providersvc.ProvideService(&cfg)
+		providerService, err = providersvc.NewService(sdkconfig.ProviderConfigs(cfg)...)
 		if err != nil {
 			return nil, err
 		}
@@ -206,19 +209,27 @@ func newAgentRuntime(name string, cfg sdkconfig.AgentModelConfig, systemMessage 
 	}, nil
 }
 
-func (a *agent) Model() models.Model {
-	return a.modelFor(a.mainAgent.modelID)
+func applyConfigAgentOptions(cfg *sdkconfig.Config, opts agentOptions) {
+	if opts.database != nil {
+		cfg.Database = *opts.database
+	}
+	if len(opts.providers) > 0 {
+		cfg.Providers = append([]providersvc.ProviderRegister(nil), opts.providers...)
+	}
+	if opts.modelID != "" {
+		cfg.Agent.ModelID = opts.modelID
+	}
+	if opts.provider != "" {
+		cfg.Agent.Provider = opts.provider
+	}
 }
 
-func (a *agent) modelFor(modelID models.ModelID) models.Model {
-	if target, ok := a.providerService.ActiveTarget(modelID); ok {
-		return target.Model
-	}
-	targets := a.providerService.AvailableTargets(modelID)
-	if len(targets) > 0 {
-		return targets[0].Model
-	}
-	return models.Model{ID: modelID}
+func (a *agent) Model() models.Model {
+	return a.modelFor(a.mainAgent)
+}
+
+func (a *agent) modelFor(runtime llmAgentRuntime) models.Model {
+	return models.ResolveModel(runtime.provider, runtime.modelID)
 }
 
 func (a *agent) providerRequest(runtime llmAgentRuntime, messages []message.Message) client.Request {
@@ -455,7 +466,7 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 
 	// Process each event in the stream.
 	for event := range eventChan {
-		if processErr := a.processEvent(ctx, sessionID, &assistantMsg, event, a.mainAgent.modelID); processErr != nil {
+		if processErr := a.processEvent(ctx, sessionID, &assistantMsg, event, a.mainAgent); processErr != nil {
 			a.finishMessage(ctx, &assistantMsg, message.FinishReasonCanceled)
 			return assistantMsg, nil, processErr
 		}
@@ -560,7 +571,7 @@ func (a *agent) finishMessage(ctx context.Context, msg *message.Message, finishR
 	_ = a.messages.Update(ctx, *msg)
 }
 
-func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg *message.Message, event client.Event, modelID models.ModelID) error {
+func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg *message.Message, event client.Event, runtime llmAgentRuntime) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -603,7 +614,7 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 		if err := a.messages.Update(ctx, *assistantMsg); err != nil {
 			return fmt.Errorf("failed to update message: %w", err)
 		}
-		return a.TrackUsage(ctx, sessionID, a.modelFor(modelID), event.Response.Usage)
+		return a.TrackUsage(ctx, sessionID, a.modelFor(runtime), event.Response.Usage)
 	}
 
 	return nil
@@ -639,41 +650,9 @@ func (a *agent) Update(profileKey string, modelID models.ModelID) (models.Model,
 		return models.Model{}, fmt.Errorf("model profile %s not supported", profileKey)
 	}
 	a.config.Agent.ModelID = modelID
-	updateProviderModelConfig(&a.config, a.mainAgent.provider, modelID)
-	providerService, err := providersvc.ProvideService(&a.config)
-	if err != nil {
-		return models.Model{}, fmt.Errorf("failed to create provider service for model %s: %w", modelID, err)
-	}
-
-	a.providerService = providerService
 	a.mainAgent.modelID = modelID
-	a.mainAgent.provider = a.config.Agent.Provider
 
 	return a.Model(), nil
-}
-
-func updateProviderModelConfig(cfg *sdkconfig.Config, preferredProvider models.ModelProvider, modelID models.ModelID) {
-	providerConfigs := cfg.Providers
-	if len(providerConfigs) == 0 {
-		providerConfigs = []sdkconfig.ProviderConfig{cfg.Provider}
-	}
-	index := 0
-	for i, providerCfg := range providerConfigs {
-		if preferredProvider != "" && providerCfg.Provider == preferredProvider {
-			index = i
-			break
-		}
-	}
-	if len(providerConfigs[index].Models) == 0 {
-		providerConfigs[index].Models = []sdkconfig.ModelConfig{{ModelId: modelID}}
-	} else {
-		providerConfigs[index].Models[0].ModelId = modelID
-	}
-	if len(cfg.Providers) > 0 {
-		cfg.Providers = providerConfigs
-		return
-	}
-	cfg.Provider = providerConfigs[index]
 }
 
 func (a *agent) Summarize(ctx context.Context, sessionID string) error {
@@ -798,7 +777,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 					Time:   time.Now().Unix(),
 				},
 			},
-			Model: a.modelFor(a.summarizeAgent.modelID).ID,
+			Model: a.modelFor(*a.summarizeAgent).ID,
 		})
 		if err != nil {
 			event = AgentEvent{
@@ -813,7 +792,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 		oldSession.SummaryMessageID = msg.ID
 		oldSession.CompletionTokens = response.Usage.OutputTokens
 		oldSession.PromptTokens = 0
-		model := a.modelFor(a.summarizeAgent.modelID)
+		model := a.modelFor(*a.summarizeAgent)
 		usage := response.Usage
 		cost := model.CostPer1MInCached/1e6*float64(usage.CacheCreationTokens) +
 			model.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +

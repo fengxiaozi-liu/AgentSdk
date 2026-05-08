@@ -1,6 +1,9 @@
 package agent
 
 import (
+	datadb "ferryman-agent/internal/data/db"
+	"ferryman-agent/internal/data/llm/models"
+	providersvc "ferryman-agent/internal/provider"
 	toolcore "ferryman-agent/internal/tools"
 )
 
@@ -12,6 +15,10 @@ type agentOptions struct {
 	enableMcpTool       bool
 	enableWorkSpaceTool bool
 	promptKey           string
+	providers           []providersvc.ProviderRegister
+	database            *datadb.DatabaseConfig
+	modelID             models.ModelID
+	provider            models.ModelProvider
 }
 
 func WithTools(tools ...toolcore.BaseTool) AgentOption {
@@ -45,6 +52,25 @@ func WithMCPTool() AgentOption {
 func WithPromptKey(key string) AgentOption {
 	return func(opts *agentOptions) {
 		opts.promptKey = key
+	}
+}
+
+func WithProviders(providers ...providersvc.ProviderRegister) AgentOption {
+	return func(opts *agentOptions) {
+		opts.providers = append(opts.providers, providers...)
+	}
+}
+
+func WithModel(provider models.ModelProvider, modelID models.ModelID) AgentOption {
+	return func(opts *agentOptions) {
+		opts.provider = provider
+		opts.modelID = modelID
+	}
+}
+
+func WithDatabase(database datadb.DatabaseConfig) AgentOption {
+	return func(opts *agentOptions) {
+		opts.database = &database
 	}
 }
 

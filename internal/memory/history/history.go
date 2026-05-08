@@ -77,16 +77,25 @@ func (s *service) CreateVersion(ctx context.Context, sessionID, path, content st
 	} else {
 		nextVersion = fmt.Sprintf("v%d", latestFile.CreatedAt)
 	}
-	return s.createWithVersion(ctx, sessionID, path, content, nextVersion)
+	return s.createWithVersionAfter(ctx, sessionID, path, content, nextVersion, latestFile.CreatedAt)
 }
 
 func (s *service) createWithVersion(ctx context.Context, sessionID, path, content, version string) (File, error) {
+	return s.createWithVersionAfter(ctx, sessionID, path, content, version, 0)
+}
+
+func (s *service) createWithVersionAfter(ctx context.Context, sessionID, path, content, version string, after int64) (File, error) {
+	createdAt := int64(0)
+	if after > 0 {
+		createdAt = after + 1
+	}
 	dbFile, err := s.repo.Create(ctx, repo.HistoryRecord{
 		ID:        uuid.New().String(),
 		SessionID: sessionID,
 		Path:      path,
 		Content:   content,
 		Version:   version,
+		CreatedAt: createdAt,
 	})
 	if err != nil {
 		return File{}, err

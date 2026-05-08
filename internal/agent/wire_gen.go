@@ -41,7 +41,8 @@ func wireContainer(cfg *config.Config) (*Container, error) {
 		return nil, err
 	}
 	workspaceWorkspace := workspace.NewWorkspace(string2)
-	providerService, err := provider2.ProvideService(cfg)
+	providerRegisters := config.ProviderRegisters(cfg)
+	providerService, err := provider2.ProvideService(providerRegisters)
 	if err != nil {
 		return nil, err
 	}
