@@ -15,21 +15,21 @@ type azureClient struct {
 	llmclient.Client
 }
 
-func NewClient(opts llmclient.Options, optionFns ...client3.Option) llmclient.Client {
+func NewClient(apiKey string, optionFns ...client3.Option) llmclient.Client {
 
 	endpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")      // ex: https://foo.openai.azure.com
 	apiVersion := os.Getenv("AZURE_OPENAI_API_VERSION") // ex: 2025-04-01-preview
 
 	if endpoint == "" || apiVersion == "" {
-		return &azureClient{Client: client3.NewClient(opts, optionFns...)}
+		return &azureClient{Client: client3.NewClient(apiKey, optionFns...)}
 	}
 
 	reqOpts := []option.RequestOption{
 		azure.WithEndpoint(endpoint, apiVersion),
 	}
 
-	if opts.APIKey != "" || os.Getenv("AZURE_OPENAI_API_KEY") != "" {
-		key := opts.APIKey
+	if apiKey != "" || os.Getenv("AZURE_OPENAI_API_KEY") != "" {
+		key := apiKey
 		if key == "" {
 			key = os.Getenv("AZURE_OPENAI_API_KEY")
 		}
@@ -38,7 +38,7 @@ func NewClient(opts llmclient.Options, optionFns ...client3.Option) llmclient.Cl
 		reqOpts = append(reqOpts, azure.WithTokenCredential(cred))
 	}
 
-	base := client3.NewClientWithOpenAI(opts, openai.NewClient(reqOpts...), optionFns...)
+	base := client3.NewClientWithOpenAI(openai.NewClient(reqOpts...), optionFns...)
 
 	return &azureClient{Client: base}
 }

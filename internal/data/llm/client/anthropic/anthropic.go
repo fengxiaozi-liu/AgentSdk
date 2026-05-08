@@ -20,20 +20,19 @@ import (
 )
 
 type anthropicClient struct {
-	providerOptions llmclient.Options
-	options         options
-	client          anthropic.Client
+	options options
+	client  anthropic.Client
 }
 
-func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+func NewClient(apiKey string, optionFns ...Option) llmclient.Client {
 	anthropicOpts := options{}
 	for _, o := range optionFns {
 		o(&anthropicOpts)
 	}
 
 	anthropicClientOptions := []option.RequestOption{}
-	if opts.APIKey != "" {
-		anthropicClientOptions = append(anthropicClientOptions, option.WithAPIKey(opts.APIKey))
+	if apiKey != "" {
+		anthropicClientOptions = append(anthropicClientOptions, option.WithAPIKey(apiKey))
 	}
 	if anthropicOpts.useBedrock {
 		anthropicClientOptions = append(anthropicClientOptions, bedrock.WithLoadDefaultConfig(context.Background()))
@@ -41,9 +40,8 @@ func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
 
 	client := anthropic.NewClient(anthropicClientOptions...)
 	return &anthropicClient{
-		providerOptions: opts,
-		options:         anthropicOpts,
-		client:          client,
+		options: anthropicOpts,
+		client:  client,
 	}
 }
 
@@ -149,7 +147,7 @@ func (a *anthropicClient) finishReason(reason string) message.FinishReason {
 	}
 }
 
-func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, tools []anthropic.ToolUnionParam) anthropic.MessageNewParams {
+func (a *anthropicClient) preparedMessages(model models.Model, systemMessage string, messages []anthropic.MessageParam, tools []anthropic.ToolUnionParam) anthropic.MessageNewParams {
 	var thinkingParam anthropic.ThinkingConfigParamUnion
 	lastMessage := messages[len(messages)-1]
 	isUser := lastMessage.Role == anthropic.MessageParamRoleUser
@@ -162,21 +160,21 @@ func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, to
 			}
 		}
 		if messageContent != "" && a.options.shouldThink != nil && a.options.shouldThink(messageContent) {
-			thinkingParam = anthropic.ThinkingConfigParamOfEnabled(int64(float64(a.providerOptions.MaxTokens) * 0.8))
+			thinkingParam = anthropic.ThinkingConfigParamOfEnabled(int64(float64(model.MaxTokens) * 0.8))
 			temperature = anthropic.Float(1)
 		}
 	}
 
 	return anthropic.MessageNewParams{
-		Model:       anthropic.Model(a.providerOptions.Model.APIModel),
-		MaxTokens:   a.providerOptions.MaxTokens,
+		Model:       anthropic.Model(model.APIModel),
+		MaxTokens:   model.MaxTokens,
 		Temperature: temperature,
 		Messages:    messages,
 		Tools:       tools,
 		Thinking:    thinkingParam,
 		System: []anthropic.TextBlockParam{
 			{
-				Text: a.providerOptions.SystemMessage,
+				Text: systemMessage,
 				CacheControl: anthropic.CacheControlEphemeralParam{
 					Type: "ephemeral",
 				},
@@ -185,9 +183,9 @@ func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, to
 	}
 }
 
-func (a *anthropicClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (resposne *llmclient.Response, err error) {
-	preparedMessages := a.preparedMessages(a.convertMessages(messages), a.convertTools(tools))
-	if a.providerOptions.Debug {
+func (a *anthropicClient) Send(ctx context.Context, request llmclient.Request) (resposne *llmclient.Response, err error) {
+	preparedMessages := a.preparedMessages(request.Model, request.SystemMessage, a.convertMessages(request.Messages), a.convertTools(request.Tools))
+	if request.Debug {
 		jsonData, _ := json.Marshal(preparedMessages)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -233,12 +231,12 @@ func (a *anthropicClient) Send(ctx context.Context, messages []message.Message, 
 	}
 }
 
-func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
-	preparedMessages := a.preparedMessages(a.convertMessages(messages), a.convertTools(tools))
+func (a *anthropicClient) Stream(ctx context.Context, request llmclient.Request) <-chan llmclient.Event {
+	preparedMessages := a.preparedMessages(request.Model, request.SystemMessage, a.convertMessages(request.Messages), a.convertTools(request.Tools))
 
 	var sessionId string
-	requestSeqId := (len(messages) + 1) / 2
-	if a.providerOptions.Debug {
+	requestSeqId := (len(request.Messages) + 1) / 2
+	if request.Debug {
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
 			sessionId = sid
 		}

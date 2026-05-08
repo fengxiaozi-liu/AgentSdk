@@ -15,13 +15,14 @@ import (
 	"ferryman-agent/internal/memory/message"
 	"ferryman-agent/internal/memory/session"
 	"ferryman-agent/internal/prompt"
+	provider2 "ferryman-agent/internal/provider"
 	"ferryman-agent/internal/security/permission"
 )
 
 // Injectors from wire.go:
 
 func wireContainer(cfg *config.Config) (*Container, error) {
-	databaseConfig := config.DatabaseConfig(cfg)
+	databaseConfig := config.ProvideDatabaseConfig(cfg)
 	dbClient, err := db.NewDbClient(databaseConfig)
 	if err != nil {
 		return nil, err
@@ -40,7 +41,11 @@ func wireContainer(cfg *config.Config) (*Container, error) {
 		return nil, err
 	}
 	workspaceWorkspace := workspace.NewWorkspace(string2)
-	container, err := NewContainer(dbClient, service, messageService, historyService, permissionService, promptService, workspaceWorkspace, sessionRepo, messageRepo, historyRepo)
+	providerService, err := provider2.ProvideService(cfg)
+	if err != nil {
+		return nil, err
+	}
+	container, err := NewContainer(dbClient, service, messageService, historyService, permissionService, promptService, workspaceWorkspace, providerService, sessionRepo, messageRepo, historyRepo)
 	if err != nil {
 		return nil, err
 	}

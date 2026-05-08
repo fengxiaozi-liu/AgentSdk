@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	sdkconfig "ferryman-agent/internal/config"
 	client "ferryman-agent/internal/data/llm/client"
 	anthropicclient "ferryman-agent/internal/data/llm/client/anthropic"
 	azureclient "ferryman-agent/internal/data/llm/client/azure"
@@ -19,13 +20,7 @@ import (
 	toolcore "ferryman-agent/internal/tools"
 )
 
-type ProviderConfig struct {
-	Provider    models.ModelProvider `json:"provider"`
-	APIKey      string               `json:"apiKey"`
-	BaseURL     string               `json:"baseURL"`
-	ModelConfig models.ModelConfig   `json:"modelConfig"`
-	Disabled    bool                 `json:"disabled"`
-}
+type ProviderConfig = sdkconfig.ProviderConfig
 
 type Provider interface {
 	SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client.Response, error)
@@ -34,7 +29,7 @@ type Provider interface {
 }
 
 type baseProvider struct {
-	options client.Options
+	options providerClientOptions
 	client  client.Client
 }
 
@@ -51,7 +46,14 @@ func (p *baseProvider) cleanMessages(messages []message.Message) (cleaned []mess
 
 func (p *baseProvider) SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client.Response, error) {
 	messages = p.cleanMessages(messages)
-	return p.client.Send(ctx, messages, tools)
+	return p.client.Send(ctx, client.Request{
+		ModelID:       p.options.Model.ID,
+		Model:         p.options.Model,
+		SystemMessage: p.options.SystemMessage,
+		Debug:         p.options.Debug,
+		Messages:      messages,
+		Tools:         tools,
+	})
 }
 
 func (p *baseProvider) Model() models.Model {
@@ -60,34 +62,44 @@ func (p *baseProvider) Model() models.Model {
 
 func (p *baseProvider) StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client.Event {
 	messages = p.cleanMessages(messages)
-	return p.client.Stream(ctx, messages, tools)
+	return p.client.Stream(ctx, client.Request{
+		ModelID:       p.options.Model.ID,
+		Model:         p.options.Model,
+		SystemMessage: p.options.SystemMessage,
+		Debug:         p.options.Debug,
+		Messages:      messages,
+		Tools:         tools,
+	})
 }
 
 func CreateProvider(providerCfg ProviderConfig, systemPrompt string, extraOpts ...ProviderClientOption) (Provider, error) {
 	providerName := providerCfg.Provider
+	modelCfg, hasModel := providerCfg.PrimaryModelConfig()
 	if providerName == "" {
-		return nil, fmt.Errorf("provider is required for model %s", providerCfg.ModelConfig.ModelId)
+		if hasModel {
+			return nil, fmt.Errorf("provider is required for model %s", modelCfg.ModelId)
+		}
+		return nil, fmt.Errorf("provider is required")
 	}
 	if providerCfg.Disabled {
 		return nil, fmt.Errorf("provider %s is not enabled", providerName)
 	}
-	model := models.ResolveModel(providerName, providerCfg.ModelConfig.ModelId)
-	maxTokens := model.DefaultMaxTokens
-	if providerCfg.ModelConfig.MaxTokens > 0 {
-		maxTokens = providerCfg.ModelConfig.MaxTokens
+	if !hasModel {
+		return nil, fmt.Errorf("model is required for provider %s", providerName)
 	}
+	model := sdkconfig.ApplyModelConfig(models.ResolveModel(providerName, modelCfg.ModelId), modelCfg)
 	opts := []ProviderClientOption{
 		WithAPIKey(providerCfg.APIKey),
 		WithModel(model),
 		WithSystemMessage(systemPrompt),
-		WithMaxTokens(maxTokens),
+		WithMaxTokens(model.MaxTokens),
 	}
 	opts = append(opts, extraOpts...)
 	if (providerName == models.ProviderOpenAI || providerName == models.ProviderLocal) && model.CanReason {
 		opts = append(
 			opts,
 			WithOpenAIOptions(
-				openaiclient.WithReasoningEffort(providerCfg.ModelConfig.ReasoningEffort),
+				openaiclient.WithReasoningEffort(modelCfg.ReasoningEffort),
 			),
 		)
 	} else if providerName == models.ProviderAnthropic && model.CanReason {
@@ -116,7 +128,7 @@ func CreateProvider(providerCfg ProviderConfig, systemPrompt string, extraOpts .
 }
 
 func Configured(providerCfg ProviderConfig) bool {
-	return providerCfg.Provider != "" || providerCfg.ModelConfig.ModelId != ""
+	return providerCfg.Configured()
 }
 
 func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption) (Provider, error) {
@@ -127,46 +139,46 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 	switch providerName {
 	case models.ProviderCopilot:
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  copilotclient.NewClient(clientOptions.Options, clientOptions.CopilotOptions...),
+			options: clientOptions,
+			client:  copilotclient.NewClient(clientOptions.APIKey, clientOptions.CopilotOptions...),
 		}, nil
 	case models.ProviderAnthropic:
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  anthropicclient.NewClient(clientOptions.Options, clientOptions.AnthropicOptions...),
+			options: clientOptions,
+			client:  anthropicclient.NewClient(clientOptions.APIKey, clientOptions.AnthropicOptions...),
 		}, nil
 	case models.ProviderOpenAI:
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
+			options: clientOptions,
+			client:  openaiclient.NewClient(clientOptions.APIKey, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderGemini:
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  geminiclient.NewClient(clientOptions.Options, clientOptions.GeminiOptions...),
+			options: clientOptions,
+			client:  geminiclient.NewClient(clientOptions.APIKey, clientOptions.GeminiOptions...),
 		}, nil
 	case models.ProviderBedrock:
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  bedrockclient.NewClient(clientOptions.Options, clientOptions.BedrockOptions...),
+			options: clientOptions,
+			client:  bedrockclient.NewClient(clientOptions.APIKey, clientOptions.BedrockOptions...),
 		}, nil
 	case models.ProviderGROQ:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
 			openaiclient.WithDefaultBaseURL("https://api.groq.com/openai/v1"),
 		)
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
+			options: clientOptions,
+			client:  openaiclient.NewClient(clientOptions.APIKey, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderAzure:
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  azureclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
+			options: clientOptions,
+			client:  azureclient.NewClient(clientOptions.APIKey, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderVertexAI:
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  vertexaiclient.NewClient(clientOptions.Options, clientOptions.GeminiOptions...),
+			options: clientOptions,
+			client:  vertexaiclient.NewClient(clientOptions.APIKey, clientOptions.GeminiOptions...),
 		}, nil
 	case models.ProviderOpenRouter:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
@@ -177,29 +189,29 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 			}),
 		)
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
+			options: clientOptions,
+			client:  openaiclient.NewClient(clientOptions.APIKey, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderXAI:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
 			openaiclient.WithDefaultBaseURL("https://api.x.ai/v1"),
 		)
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
+			options: clientOptions,
+			client:  openaiclient.NewClient(clientOptions.APIKey, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderLocal:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
 			openaiclient.WithDefaultBaseURL(os.Getenv("LOCAL_ENDPOINT")),
 		)
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
+			options: clientOptions,
+			client:  openaiclient.NewClient(clientOptions.APIKey, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderMock:
 		return &baseProvider{
-			options: clientOptions.Options,
-			client:  mockclient.NewClient(clientOptions.Options),
+			options: clientOptions,
+			client:  mockclient.NewClient(),
 		}, nil
 	}
 	return nil, fmt.Errorf("provider not supported: %s", providerName)

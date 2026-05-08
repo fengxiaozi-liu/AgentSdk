@@ -5,7 +5,6 @@ import (
 	"errors"
 	"ferryman-agent/internal/data/llm/client"
 	"ferryman-agent/internal/data/llm/models"
-	"ferryman-agent/internal/data/llm/provider"
 	"fmt"
 	"strings"
 	"sync"
@@ -19,6 +18,7 @@ import (
 	"ferryman-agent/internal/memory/message"
 	"ferryman-agent/internal/memory/session"
 	"ferryman-agent/internal/prompt"
+	providersvc "ferryman-agent/internal/provider"
 	"ferryman-agent/internal/pubsub"
 	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
@@ -60,17 +60,25 @@ type Service interface {
 
 type agent struct {
 	*pubsub.Broker[AgentEvent]
-	config            sdkconfig.Config
-	sessions          session.Service //
-	messages          message.Service
-	history           history.Service
-	tools             []toolcore.BaseTool
-	prompt            prompt.Service
-	promptKey         string
-	provider          provider.Provider
-	titleProvider     provider.Provider
-	summarizeProvider provider.Provider
-	activeRequests    sync.Map
+	config          sdkconfig.Config
+	sessions        session.Service //
+	messages        message.Service
+	history         history.Service
+	tools           []toolcore.BaseTool
+	prompt          prompt.Service
+	promptKey       string
+	providerService providersvc.Service
+	mainAgent       llmAgentRuntime
+	titleAgent      *llmAgentRuntime
+	summarizeAgent  *llmAgentRuntime
+	activeRequests  sync.Map
+}
+
+type llmAgentRuntime struct {
+	modelID       models.ModelID
+	provider      models.ModelProvider
+	systemMessage string
+	tools         []toolcore.BaseTool
 }
 
 func MainAgent(cfg sdkconfig.Config, opts ...AgentOption) (Service, error) {
@@ -90,6 +98,7 @@ func MainAgent(cfg sdkconfig.Config, opts ...AgentOption) (Service, error) {
 		container.Prompt,
 		container.Permissions,
 		container.Workspace,
+		container.ProviderService,
 		opts...,
 	)
 }
@@ -102,8 +111,10 @@ func NewAgent(
 	prompts prompt.Service,
 	permissions permission.Service,
 	ws workspace.Workspace,
+	providerService providersvc.Service,
 	opts ...AgentOption,
 ) (Service, error) {
+	cfg = sdkconfig.WithDefaults(cfg)
 	agentOpts := applyAgentOptions(opts...)
 	if agentOpts.enableWorkSpaceTool {
 		agentOpts.tools = append(agentOpts.tools,
@@ -129,50 +140,96 @@ func NewAgent(
 	if prompts != nil && strings.TrimSpace(agentOpts.promptKey) != "" {
 		systemPrompt, _ = prompts.GetSystemPrompt(agentOpts.promptKey)
 	}
-	agentProvider, err := provider.CreateProvider(cfg.Provider, systemPrompt, provider.WithDebug(cfg.Debug))
+	if providerService == nil {
+		var err error
+		providerService, err = providersvc.ProvideService(&cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	mainRuntime, err := newAgentRuntime("agent", cfg.Agent, systemPrompt, agentOpts.tools)
 	if err != nil {
 		return nil, err
 	}
-	var titleProvider provider.Provider
-	if provider.Configured(cfg.TitleProvider) {
+
+	var titleAgent *llmAgentRuntime
+	if cfg.TitleAgent.ModelID != "" {
 		titlePrompt := ""
 		if prompts != nil {
 			titlePrompt, _ = prompts.GetSystemPrompt(prompt.KeyTitle)
 		}
-		titleProvider, err = provider.CreateProvider(cfg.TitleProvider, titlePrompt, provider.WithDebug(cfg.Debug))
+		runtime, err := newAgentRuntime("titleAgent", cfg.TitleAgent, titlePrompt, make([]toolcore.BaseTool, 0))
 		if err != nil {
 			return nil, err
 		}
+		titleAgent = &runtime
 	}
-	var summarizeProvider provider.Provider
-	if provider.Configured(cfg.SummarizerProvider) {
+	var summarizeAgent *llmAgentRuntime
+	if cfg.SummarizeAgent.ModelID != "" {
 		summarizePrompt := ""
 		if prompts != nil {
 			summarizePrompt, _ = prompts.GetSystemPrompt(prompt.KeySummarizer)
 		}
-		summarizeProvider, err = provider.CreateProvider(cfg.SummarizerProvider, summarizePrompt, provider.WithDebug(cfg.Debug))
+		runtime, err := newAgentRuntime("summarizeAgent", cfg.SummarizeAgent, summarizePrompt, make([]toolcore.BaseTool, 0))
 		if err != nil {
 			return nil, err
 		}
+		summarizeAgent = &runtime
 	}
 	return &agent{
-		Broker:            pubsub.NewBroker[AgentEvent](),
-		config:            cfg,
-		sessions:          sessions,
-		messages:          messages,
-		history:           history,
-		tools:             agentOpts.tools,
-		prompt:            prompts,
-		promptKey:         agentOpts.promptKey,
-		provider:          agentProvider,
-		titleProvider:     titleProvider,
-		summarizeProvider: summarizeProvider,
-		activeRequests:    sync.Map{},
+		Broker:          pubsub.NewBroker[AgentEvent](),
+		config:          cfg,
+		sessions:        sessions,
+		messages:        messages,
+		history:         history,
+		tools:           agentOpts.tools,
+		prompt:          prompts,
+		promptKey:       agentOpts.promptKey,
+		providerService: providerService,
+		mainAgent:       mainRuntime,
+		titleAgent:      titleAgent,
+		summarizeAgent:  summarizeAgent,
+		activeRequests:  sync.Map{},
+	}, nil
+}
+
+func newAgentRuntime(name string, cfg sdkconfig.AgentModelConfig, systemMessage string, tools []toolcore.BaseTool) (llmAgentRuntime, error) {
+	if cfg.ModelID == "" {
+		return llmAgentRuntime{}, fmt.Errorf("%s model_id is required", name)
+	}
+	return llmAgentRuntime{
+		modelID:       cfg.ModelID,
+		provider:      cfg.Provider,
+		systemMessage: systemMessage,
+		tools:         tools,
 	}, nil
 }
 
 func (a *agent) Model() models.Model {
-	return a.provider.Model()
+	return a.modelFor(a.mainAgent.modelID)
+}
+
+func (a *agent) modelFor(modelID models.ModelID) models.Model {
+	if target, ok := a.providerService.ActiveTarget(modelID); ok {
+		return target.Model
+	}
+	targets := a.providerService.AvailableTargets(modelID)
+	if len(targets) > 0 {
+		return targets[0].Model
+	}
+	return models.Model{ID: modelID}
+}
+
+func (a *agent) providerRequest(runtime llmAgentRuntime, messages []message.Message) client.Request {
+	return client.Request{
+		ModelID:       runtime.modelID,
+		Provider:      runtime.provider,
+		SystemMessage: runtime.systemMessage,
+		Debug:         a.config.Debug,
+		Messages:      messages,
+		Tools:         runtime.tools,
+	}
 }
 
 func (a *agent) Cancel(sessionID string) {
@@ -216,7 +273,7 @@ func (a *agent) generateTitle(ctx context.Context, sessionID string, content str
 	if content == "" {
 		return nil
 	}
-	if a.titleProvider == nil {
+	if a.titleAgent == nil {
 		return nil
 	}
 	session, err := a.sessions.Get(ctx, sessionID)
@@ -225,15 +282,14 @@ func (a *agent) generateTitle(ctx context.Context, sessionID string, content str
 	}
 	ctx = context.WithValue(ctx, toolcore.SessionIDContextKey, sessionID)
 	parts := []message.ContentPart{message.TextContent{Text: content}}
-	response, err := a.titleProvider.SendMessages(
+	response, err := a.providerService.SendMessages(
 		ctx,
-		[]message.Message{
+		a.providerRequest(*a.titleAgent, []message.Message{
 			{
 				Role:  message.User,
 				Parts: parts,
 			},
-		},
-		make([]toolcore.BaseTool, 0),
+		}),
 	)
 	if err != nil {
 		return err
@@ -257,7 +313,7 @@ func (a *agent) err(err error) AgentEvent {
 }
 
 func (a *agent) Run(ctx context.Context, sessionID string, content string, attachments ...message.Attachment) (<-chan AgentEvent, error) {
-	if !a.provider.Model().SupportsAttachments && attachments != nil {
+	if !a.Model().SupportsAttachments && attachments != nil {
 		attachments = nil
 	}
 	events := make(chan AgentEvent)
@@ -383,12 +439,12 @@ func (a *agent) createUserMessage(ctx context.Context, sessionID, content string
 
 func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msgHistory []message.Message) (message.Message, *message.Message, error) {
 	ctx = context.WithValue(ctx, toolcore.SessionIDContextKey, sessionID)
-	eventChan := a.provider.StreamResponse(ctx, msgHistory, a.tools)
+	eventChan := a.providerService.StreamResponse(ctx, a.providerRequest(a.mainAgent, msgHistory))
 
 	assistantMsg, err := a.messages.Create(ctx, sessionID, message.CreateMessageParams{
 		Role:  message.Assistant,
 		Parts: []message.ContentPart{},
-		Model: a.provider.Model().ID,
+		Model: a.Model().ID,
 	})
 	if err != nil {
 		return assistantMsg, nil, fmt.Errorf("failed to create assistant message: %w", err)
@@ -399,7 +455,7 @@ func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msg
 
 	// Process each event in the stream.
 	for event := range eventChan {
-		if processErr := a.processEvent(ctx, sessionID, &assistantMsg, event); processErr != nil {
+		if processErr := a.processEvent(ctx, sessionID, &assistantMsg, event, a.mainAgent.modelID); processErr != nil {
 			a.finishMessage(ctx, &assistantMsg, message.FinishReasonCanceled)
 			return assistantMsg, nil, processErr
 		}
@@ -504,7 +560,7 @@ func (a *agent) finishMessage(ctx context.Context, msg *message.Message, finishR
 	_ = a.messages.Update(ctx, *msg)
 }
 
-func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg *message.Message, event client.Event) error {
+func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg *message.Message, event client.Event, modelID models.ModelID) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -547,7 +603,7 @@ func (a *agent) processEvent(ctx context.Context, sessionID string, assistantMsg
 		if err := a.messages.Update(ctx, *assistantMsg); err != nil {
 			return fmt.Errorf("failed to update message: %w", err)
 		}
-		return a.TrackUsage(ctx, sessionID, a.provider.Model(), event.Response.Usage)
+		return a.TrackUsage(ctx, sessionID, a.modelFor(modelID), event.Response.Usage)
 	}
 
 	return nil
@@ -582,24 +638,47 @@ func (a *agent) Update(profileKey string, modelID models.ModelID) (models.Model,
 	if profileKey != "" && profileKey != "coder" {
 		return models.Model{}, fmt.Errorf("model profile %s not supported", profileKey)
 	}
-	a.config.Provider.ModelConfig.ModelId = modelID
-	systemPrompt := ""
-	if a.prompt != nil && strings.TrimSpace(a.promptKey) != "" {
-		systemPrompt, _ = a.prompt.GetSystemPrompt(a.promptKey)
-	}
-	provider, err := provider.CreateProvider(a.config.Provider, systemPrompt, provider.WithDebug(a.config.Debug))
+	a.config.Agent.ModelID = modelID
+	updateProviderModelConfig(&a.config, a.mainAgent.provider, modelID)
+	providerService, err := providersvc.ProvideService(&a.config)
 	if err != nil {
-		return models.Model{}, fmt.Errorf("failed to create provider for model %s: %w", modelID, err)
+		return models.Model{}, fmt.Errorf("failed to create provider service for model %s: %w", modelID, err)
 	}
 
-	a.provider = provider
+	a.providerService = providerService
+	a.mainAgent.modelID = modelID
+	a.mainAgent.provider = a.config.Agent.Provider
 
-	return a.provider.Model(), nil
+	return a.Model(), nil
+}
+
+func updateProviderModelConfig(cfg *sdkconfig.Config, preferredProvider models.ModelProvider, modelID models.ModelID) {
+	providerConfigs := cfg.Providers
+	if len(providerConfigs) == 0 {
+		providerConfigs = []sdkconfig.ProviderConfig{cfg.Provider}
+	}
+	index := 0
+	for i, providerCfg := range providerConfigs {
+		if preferredProvider != "" && providerCfg.Provider == preferredProvider {
+			index = i
+			break
+		}
+	}
+	if len(providerConfigs[index].Models) == 0 {
+		providerConfigs[index].Models = []sdkconfig.ModelConfig{{ModelId: modelID}}
+	} else {
+		providerConfigs[index].Models[0].ModelId = modelID
+	}
+	if len(cfg.Providers) > 0 {
+		cfg.Providers = providerConfigs
+		return
+	}
+	cfg.Provider = providerConfigs[index]
 }
 
 func (a *agent) Summarize(ctx context.Context, sessionID string) error {
-	if a.summarizeProvider == nil {
-		return fmt.Errorf("summarize provider not available")
+	if a.summarizeAgent == nil {
+		return fmt.Errorf("summarize agent not available")
 	}
 
 	// Check if session is busy
@@ -671,11 +750,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 		a.Publish(pubsub.CreatedEvent, event)
 
 		// Send the messages to the summarize provider
-		response, err := a.summarizeProvider.SendMessages(
-			summarizeCtx,
-			msgsWithPrompt,
-			make([]toolcore.BaseTool, 0),
-		)
+		response, err := a.providerService.SendMessages(summarizeCtx, a.providerRequest(*a.summarizeAgent, msgsWithPrompt))
 		if err != nil {
 			event = AgentEvent{
 				Type:  AgentEventTypeError,
@@ -723,7 +798,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 					Time:   time.Now().Unix(),
 				},
 			},
-			Model: a.summarizeProvider.Model().ID,
+			Model: a.modelFor(a.summarizeAgent.modelID).ID,
 		})
 		if err != nil {
 			event = AgentEvent{
@@ -738,7 +813,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 		oldSession.SummaryMessageID = msg.ID
 		oldSession.CompletionTokens = response.Usage.OutputTokens
 		oldSession.PromptTokens = 0
-		model := a.summarizeProvider.Model()
+		model := a.modelFor(a.summarizeAgent.modelID)
 		usage := response.Usage
 		cost := model.CostPer1MInCached/1e6*float64(usage.CacheCreationTokens) +
 			model.CostPer1MOutCached/1e6*float64(usage.CacheReadTokens) +

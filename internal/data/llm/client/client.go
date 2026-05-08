@@ -47,15 +47,17 @@ type Event struct {
 	Error    error
 }
 
-type Options struct {
-	APIKey        string
+type Request struct {
+	ModelID       models.ModelID
+	Provider      models.ModelProvider
 	Model         models.Model
-	MaxTokens     int64
 	SystemMessage string
 	Debug         bool
+	Messages      []message.Message
+	Tools         []toolcore.BaseTool
 }
 
 type Client interface {
-	Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*Response, error)
-	Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event
+	Send(ctx context.Context, request Request) (*Response, error)
+	Stream(ctx context.Context, request Request) <-chan Event
 }

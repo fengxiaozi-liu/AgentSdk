@@ -20,12 +20,11 @@ import (
 )
 
 type openaiClient struct {
-	providerOptions llmclient.Options
-	options         options
-	client          openai.Client
+	options options
+	client  openai.Client
 }
 
-func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+func NewClient(apiKey string, optionFns ...Option) llmclient.Client {
 	openaiOpts := options{
 		reasoningEffort: "medium",
 	}
@@ -34,8 +33,8 @@ func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
 	}
 
 	openaiClientOptions := []option.RequestOption{}
-	if opts.APIKey != "" {
-		openaiClientOptions = append(openaiClientOptions, option.WithAPIKey(opts.APIKey))
+	if apiKey != "" {
+		openaiClientOptions = append(openaiClientOptions, option.WithAPIKey(apiKey))
 	}
 	if openaiOpts.baseURL != "" {
 		openaiClientOptions = append(openaiClientOptions, option.WithBaseURL(openaiOpts.baseURL))
@@ -49,13 +48,12 @@ func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
 
 	client := openai.NewClient(openaiClientOptions...)
 	return &openaiClient{
-		providerOptions: opts,
-		options:         openaiOpts,
-		client:          client,
+		options: openaiOpts,
+		client:  client,
 	}
 }
 
-func NewClientWithOpenAI(opts llmclient.Options, client openai.Client, optionFns ...Option) llmclient.Client {
+func NewClientWithOpenAI(client openai.Client, optionFns ...Option) llmclient.Client {
 	openaiOpts := options{
 		reasoningEffort: "medium",
 	}
@@ -64,15 +62,14 @@ func NewClientWithOpenAI(opts llmclient.Options, client openai.Client, optionFns
 	}
 
 	return &openaiClient{
-		providerOptions: opts,
-		options:         openaiOpts,
-		client:          client,
+		options: openaiOpts,
+		client:  client,
 	}
 }
 
-func (o *openaiClient) convertMessages(messages []message.Message) (openaiMessages []openai.ChatCompletionMessageParamUnion) {
+func (o *openaiClient) convertMessages(systemMessage string, messages []message.Message) (openaiMessages []openai.ChatCompletionMessageParamUnion) {
 	// Add system message first
-	openaiMessages = append(openaiMessages, openai.SystemMessage(o.providerOptions.SystemMessage))
+	openaiMessages = append(openaiMessages, openai.SystemMessage(systemMessage))
 
 	for _, msg := range messages {
 		switch msg.Role {
@@ -164,16 +161,20 @@ func (o *openaiClient) finishReason(reason string) message.FinishReason {
 	}
 }
 
-func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolParam) openai.ChatCompletionNewParams {
+func (o *openaiClient) preparedParams(model models.Model, messages []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolParam) openai.ChatCompletionNewParams {
 	params := openai.ChatCompletionNewParams{
-		Model:    o.providerOptions.Model.APIModel,
+		Model:    model.APIModel,
 		Messages: messages,
 		Tools:    tools,
 	}
 
-	if o.providerOptions.Model.CanReason == true {
-		params.MaxCompletionTokens = openai.Int(o.providerOptions.MaxTokens)
-		switch o.options.reasoningEffort {
+	if model.CanReason == true {
+		params.MaxCompletionTokens = openai.Int(model.MaxTokens)
+		reasoningEffort := model.ReasoningEffort
+		if reasoningEffort == "" {
+			reasoningEffort = o.options.reasoningEffort
+		}
+		switch reasoningEffort {
 		case "low":
 			params.ReasoningEffort = shared.ReasoningEffortLow
 		case "medium":
@@ -184,15 +185,15 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 			params.ReasoningEffort = shared.ReasoningEffortMedium
 		}
 	} else {
-		params.MaxTokens = openai.Int(o.providerOptions.MaxTokens)
+		params.MaxTokens = openai.Int(model.MaxTokens)
 	}
 
 	return params
 }
 
-func (o *openaiClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *llmclient.Response, err error) {
-	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
-	if o.providerOptions.Debug {
+func (o *openaiClient) Send(ctx context.Context, request llmclient.Request) (response *llmclient.Response, err error) {
+	params := o.preparedParams(request.Model, o.convertMessages(request.SystemMessage, request.Messages), o.convertTools(request.Tools))
+	if request.Debug {
 		jsonData, _ := json.Marshal(params)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -242,13 +243,13 @@ func (o *openaiClient) Send(ctx context.Context, messages []message.Message, too
 	}
 }
 
-func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
-	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
+func (o *openaiClient) Stream(ctx context.Context, request llmclient.Request) <-chan llmclient.Event {
+	params := o.preparedParams(request.Model, o.convertMessages(request.SystemMessage, request.Messages), o.convertTools(request.Tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
 	}
 
-	if o.providerOptions.Debug {
+	if request.Debug {
 		jsonData, _ := json.Marshal(params)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}

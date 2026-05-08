@@ -6,30 +6,27 @@ import (
 	"strings"
 
 	"ferryman-agent/internal/memory/message"
-	toolcore "ferryman-agent/internal/tools"
 )
 
-type MockClient struct {
-	options llmclient.Options
-}
+type MockClient struct{}
 
 type Client = MockClient
 
-func NewClient(options llmclient.Options) MockClient {
-	return MockClient{options: options}
+func NewClient() MockClient {
+	return MockClient{}
 }
 
-func (m MockClient) Send(ctx context.Context, messages []message.Message, _ []toolcore.BaseTool) (*llmclient.Response, error) {
-	response, _, err := buildMockResponse(ctx, messages)
+func (m MockClient) Send(ctx context.Context, request llmclient.Request) (*llmclient.Response, error) {
+	response, _, err := buildMockResponse(ctx, request.Messages)
 	return response, err
 }
 
-func (m MockClient) Stream(ctx context.Context, messages []message.Message, _ []toolcore.BaseTool) <-chan llmclient.Event {
+func (m MockClient) Stream(ctx context.Context, request llmclient.Request) <-chan llmclient.Event {
 	ch := make(chan llmclient.Event, 4)
 	go func() {
 		defer close(ch)
 
-		response, events, err := buildMockResponse(ctx, messages)
+		response, events, err := buildMockResponse(ctx, request.Messages)
 		if err != nil {
 			ch <- llmclient.Event{Type: llmclient.EventError, Error: err}
 			return

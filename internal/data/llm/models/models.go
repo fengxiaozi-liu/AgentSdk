@@ -28,13 +28,6 @@ const (
 	ProviderMock       ModelProvider = "__mock"
 )
 
-type ModelConfig struct {
-	ModelId         ModelID `json:"model_id"`
-	APIModel        string  `json:"api_model"`
-	MaxTokens       int64   `json:"maxTokens,omitempty"`
-	ReasoningEffort string  `json:"reasoning_effort,omitempty"`
-}
-
 type Model struct {
 	ID                  ModelID `json:"id"`
 	Name                string  `json:"name"`
@@ -44,7 +37,7 @@ type Model struct {
 	CostPer1MInCached   float64 `json:"cost_per_1m_in_cached"`
 	CostPer1MOutCached  float64 `json:"cost_per_1m_out_cached"`
 	ContextWindow       int64   `json:"context_window"`
-	DefaultMaxTokens    int64   `json:"default_max_tokens"`
+	MaxTokens           int64   `json:"max_tokens"`
 	CanReason           bool    `json:"can_reason"`
 	SupportsAttachments bool    `json:"supports_attachments"`
 	ReasoningEffort     string  `json:"reasoning_effort,omitempty"`
@@ -97,8 +90,8 @@ func normalizeModel(modelID ModelID, model Model) Model {
 	if model.APIModel == "" {
 		model.APIModel = string(model.ID)
 	}
-	if model.DefaultMaxTokens <= 0 {
-		model.DefaultMaxTokens = 4096
+	if model.MaxTokens <= 0 {
+		model.MaxTokens = 4096
 	}
 	model.SupportsAttachments = true
 	return model

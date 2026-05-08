@@ -8,6 +8,7 @@ import (
 	"ferryman-agent/internal/data"
 	"ferryman-agent/internal/memory"
 	"ferryman-agent/internal/prompt"
+	providersvc "ferryman-agent/internal/provider"
 	"ferryman-agent/internal/security"
 
 	"github.com/google/wire"
@@ -19,6 +20,7 @@ func wireContainer(cfg *config.Config) (*Container, error) {
 		data.ProviderSet,
 		memory.ProviderSet,
 		prompt.ProviderSet,
+		providersvc.ProviderSet,
 		workspace.ProviderSet,
 		security.ProviderSet,
 		ProviderSet,

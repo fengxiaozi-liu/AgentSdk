@@ -11,7 +11,7 @@ import (
 	"google.golang.org/genai"
 )
 
-func NewClient(opts llmclient.Options, optionFns ...client3.Option) llmclient.Client {
+func NewClient(_ string, optionFns ...client3.Option) llmclient.Client {
 	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
 		Project:  os.Getenv("VERTEXAI_PROJECT"),
 		Location: os.Getenv("VERTEXAI_LOCATION"),
@@ -22,5 +22,5 @@ func NewClient(opts llmclient.Options, optionFns ...client3.Option) llmclient.Cl
 		return nil
 	}
 
-	return client3.NewClientWithGenAI(opts, client, optionFns...)
+	return client3.NewClientWithGenAI(client, optionFns...)
 }

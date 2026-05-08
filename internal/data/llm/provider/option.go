@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"ferryman-agent/internal/data/llm/client"
 	anthropicclient "ferryman-agent/internal/data/llm/client/anthropic"
 	bedrockclient "ferryman-agent/internal/data/llm/client/bedrock"
 	copilotclient "ferryman-agent/internal/data/llm/client/copilot"
@@ -11,7 +10,12 @@ import (
 )
 
 type providerClientOptions struct {
-	client.Options
+	APIKey        string
+	BaseURL       string
+	Model         models.Model
+	MaxTokens     int64
+	SystemMessage string
+	Debug         bool
 
 	AnthropicOptions []anthropicclient.Option
 	OpenAIOptions    []openaiclient.Option
@@ -25,6 +29,12 @@ type ProviderClientOption func(*providerClientOptions)
 func WithAPIKey(apiKey string) ProviderClientOption {
 	return func(options *providerClientOptions) {
 		options.APIKey = apiKey
+	}
+}
+
+func WithBaseURL(baseURL string) ProviderClientOption {
+	return func(options *providerClientOptions) {
+		options.BaseURL = baseURL
 	}
 }
 

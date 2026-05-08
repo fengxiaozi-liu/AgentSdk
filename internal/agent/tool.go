@@ -102,6 +102,7 @@ func (b *AgentTool) runTask(ctx context.Context, sessionID string, content strin
 		b.prompts,
 		nil,
 		ws,
+		nil,
 		WithTools(
 			basetools.NewGlobTool(ws),
 			basetools.NewGrepTool(ws),

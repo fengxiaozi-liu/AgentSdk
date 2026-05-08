@@ -19,40 +19,37 @@ import (
 )
 
 type geminiClient struct {
-	providerOptions llmclient.Options
-	options         options
-	client          *genai.Client
+	options options
+	client  *genai.Client
 }
 
-func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+func NewClient(apiKey string, optionFns ...Option) llmclient.Client {
 	geminiOpts := options{}
 	for _, o := range optionFns {
 		o(&geminiOpts)
 	}
 
-	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{APIKey: opts.APIKey, Backend: genai.BackendGeminiAPI})
+	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{APIKey: apiKey, Backend: genai.BackendGeminiAPI})
 	if err != nil {
 		logging.Error("Failed to create Gemini client", "error", err)
 		return nil
 	}
 
 	return &geminiClient{
-		providerOptions: opts,
-		options:         geminiOpts,
-		client:          client,
+		options: geminiOpts,
+		client:  client,
 	}
 }
 
-func NewClientWithGenAI(opts llmclient.Options, client *genai.Client, optionFns ...Option) llmclient.Client {
+func NewClientWithGenAI(client *genai.Client, optionFns ...Option) llmclient.Client {
 	geminiOpts := options{}
 	for _, o := range optionFns {
 		o(&geminiOpts)
 	}
 
 	return &geminiClient{
-		providerOptions: opts,
-		options:         geminiOpts,
-		client:          client,
+		options: geminiOpts,
+		client:  client,
 	}
 }
 
@@ -171,11 +168,11 @@ func (g *geminiClient) finishReason(reason genai.FinishReason) message.FinishRea
 	}
 }
 
-func (g *geminiClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*llmclient.Response, error) {
+func (g *geminiClient) Send(ctx context.Context, request llmclient.Request) (*llmclient.Response, error) {
 	// Convert messages
-	geminiMessages := g.convertMessages(messages)
+	geminiMessages := g.convertMessages(request.Messages)
 
-	if g.providerOptions.Debug {
+	if request.Debug {
 		jsonData, _ := json.Marshal(geminiMessages)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -183,15 +180,15 @@ func (g *geminiClient) Send(ctx context.Context, messages []message.Message, too
 	history := geminiMessages[:len(geminiMessages)-1] // All but last message
 	lastMsg := geminiMessages[len(geminiMessages)-1]
 	config := &genai.GenerateContentConfig{
-		MaxOutputTokens: int32(g.providerOptions.MaxTokens),
+		MaxOutputTokens: int32(request.Model.MaxTokens),
 		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{Text: g.providerOptions.SystemMessage}},
+			Parts: []*genai.Part{{Text: request.SystemMessage}},
 		},
 	}
-	if len(tools) > 0 {
-		config.Tools = g.convertTools(tools)
+	if len(request.Tools) > 0 {
+		config.Tools = g.convertTools(request.Tools)
 	}
-	chat, _ := g.client.Chats.Create(ctx, g.providerOptions.Model.APIModel, config, history)
+	chat, _ := g.client.Chats.Create(ctx, request.Model.APIModel, config, history)
 
 	attempts := 0
 	for {
@@ -258,11 +255,11 @@ func (g *geminiClient) Send(ctx context.Context, messages []message.Message, too
 	}
 }
 
-func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
+func (g *geminiClient) Stream(ctx context.Context, request llmclient.Request) <-chan llmclient.Event {
 	// Convert messages
-	geminiMessages := g.convertMessages(messages)
+	geminiMessages := g.convertMessages(request.Messages)
 
-	if g.providerOptions.Debug {
+	if request.Debug {
 		jsonData, _ := json.Marshal(geminiMessages)
 		logging.Debug("Prepared messages", "messages", string(jsonData))
 	}
@@ -270,15 +267,15 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 	history := geminiMessages[:len(geminiMessages)-1] // All but last message
 	lastMsg := geminiMessages[len(geminiMessages)-1]
 	config := &genai.GenerateContentConfig{
-		MaxOutputTokens: int32(g.providerOptions.MaxTokens),
+		MaxOutputTokens: int32(request.Model.MaxTokens),
 		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{Text: g.providerOptions.SystemMessage}},
+			Parts: []*genai.Part{{Text: request.SystemMessage}},
 		},
 	}
-	if len(tools) > 0 {
-		config.Tools = g.convertTools(tools)
+	if len(request.Tools) > 0 {
+		config.Tools = g.convertTools(request.Tools)
 	}
-	chat, _ := g.client.Chats.Create(ctx, g.providerOptions.Model.APIModel, config, history)
+	chat, _ := g.client.Chats.Create(ctx, request.Model.APIModel, config, history)
 
 	attempts := 0
 	eventChan := make(chan llmclient.Event)

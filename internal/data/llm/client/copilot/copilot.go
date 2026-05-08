@@ -25,10 +25,10 @@ import (
 )
 
 type copilotClient struct {
-	providerOptions llmclient.Options
-	options         options
-	client          openai.Client
-	httpClient      *http.Client
+	options     options
+	client      openai.Client
+	httpClient  *http.Client
+	githubToken string
 }
 
 // CopilotTokenResponse represents the response from GitHub's token exchange endpoint
@@ -78,8 +78,8 @@ func loadGitHubToken() (string, error) {
 	return "", fmt.Errorf("GitHub token not found in standard locations")
 }
 
-func (c *copilotClient) isAnthropicModel() bool {
-	modelID := string(c.providerOptions.Model.ID)
+func (c *copilotClient) isAnthropicModel(model models.Model) bool {
+	modelID := string(model.ID)
 	return strings.HasPrefix(modelID, "copilot.claude-") || strings.HasPrefix(modelID, "claude-")
 }
 
@@ -114,7 +114,7 @@ func (c *copilotClient) exchangeGitHubToken(githubToken string) (string, error) 
 	return tokenResp.Token, nil
 }
 
-func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+func NewClient(apiKey string, optionFns ...Option) llmclient.Client {
 	copilotOpts := options{
 		reasoningEffort: "medium",
 	}
@@ -129,20 +129,19 @@ func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
 	}
 
 	var bearerToken string
+	var githubToken string
 
 	// If bearer token is already provided, use it
 	if copilotOpts.bearerToken != "" {
 		bearerToken = copilotOpts.bearerToken
 	} else {
 		// Try to get GitHub token from multiple sources
-		var githubToken string
-
 		// 1. Environment variable
 		githubToken = os.Getenv("GITHUB_TOKEN")
 
 		// 2. API key from options
 		if githubToken == "" {
-			githubToken = opts.APIKey
+			githubToken = apiKey
 		}
 
 		// 3. Standard GitHub CLI/Copilot locations
@@ -157,17 +156,17 @@ func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
 		if githubToken == "" {
 			logging.Error("GitHub token is required for Copilot provider. Set GITHUB_TOKEN environment variable, configure it in ferryer config, or ensure GitHub CLI/Copilot is properly authenticated.")
 			return &copilotClient{
-				providerOptions: opts,
-				options:         copilotOpts,
-				httpClient:      httpClient,
+				options:     copilotOpts,
+				httpClient:  httpClient,
+				githubToken: githubToken,
 			}
 		}
 
 		// Create a temporary client for token exchange
 		tempClient := &copilotClient{
-			providerOptions: opts,
-			options:         copilotOpts,
-			httpClient:      httpClient,
+			options:     copilotOpts,
+			httpClient:  httpClient,
+			githubToken: githubToken,
 		}
 
 		// Exchange GitHub token for bearer token
@@ -176,9 +175,9 @@ func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
 		if err != nil {
 			logging.Error("Failed to exchange GitHub token for Copilot bearer token", "error", err)
 			return &copilotClient{
-				providerOptions: opts,
-				options:         copilotOpts,
-				httpClient:      httpClient,
+				options:     copilotOpts,
+				httpClient:  httpClient,
+				githubToken: githubToken,
 			}
 		}
 	}
@@ -210,16 +209,16 @@ func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
 	client := openai.NewClient(openaiClientOptions...)
 	// logging.Debug("Copilot client created", "opts", opts, "copilotOpts", copilotOpts, "model", opts.Model)
 	return &copilotClient{
-		providerOptions: opts,
-		options:         copilotOpts,
-		client:          client,
-		httpClient:      httpClient,
+		options:     copilotOpts,
+		client:      client,
+		httpClient:  httpClient,
+		githubToken: githubToken,
 	}
 }
 
-func (c *copilotClient) convertMessages(messages []message.Message) (copilotMessages []openai.ChatCompletionMessageParamUnion) {
+func (c *copilotClient) convertMessages(systemMessage string, messages []message.Message) (copilotMessages []openai.ChatCompletionMessageParamUnion) {
 	// Add system message first
-	copilotMessages = append(copilotMessages, openai.SystemMessage(c.providerOptions.SystemMessage))
+	copilotMessages = append(copilotMessages, openai.SystemMessage(systemMessage))
 
 	for _, msg := range messages {
 		switch msg.Role {
@@ -311,16 +310,20 @@ func (c *copilotClient) finishReason(reason string) message.FinishReason {
 	}
 }
 
-func (c *copilotClient) preparedParams(messages []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolParam) openai.ChatCompletionNewParams {
+func (c *copilotClient) preparedParams(model models.Model, messages []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolParam) openai.ChatCompletionNewParams {
 	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(c.providerOptions.Model.APIModel),
+		Model:    openai.ChatModel(model.APIModel),
 		Messages: messages,
 		Tools:    tools,
 	}
 
-	if c.providerOptions.Model.CanReason == true {
-		params.MaxCompletionTokens = openai.Int(c.providerOptions.MaxTokens)
-		switch c.options.reasoningEffort {
+	if model.CanReason == true {
+		params.MaxCompletionTokens = openai.Int(model.MaxTokens)
+		reasoningEffort := model.ReasoningEffort
+		if reasoningEffort == "" {
+			reasoningEffort = c.options.reasoningEffort
+		}
+		switch reasoningEffort {
 		case "low":
 			params.ReasoningEffort = shared.ReasoningEffortLow
 		case "medium":
@@ -331,17 +334,17 @@ func (c *copilotClient) preparedParams(messages []openai.ChatCompletionMessagePa
 			params.ReasoningEffort = shared.ReasoningEffortMedium
 		}
 	} else {
-		params.MaxTokens = openai.Int(c.providerOptions.MaxTokens)
+		params.MaxTokens = openai.Int(model.MaxTokens)
 	}
 
 	return params
 }
 
-func (c *copilotClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *llmclient.Response, err error) {
-	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
+func (c *copilotClient) Send(ctx context.Context, request llmclient.Request) (response *llmclient.Response, err error) {
+	params := c.preparedParams(request.Model, c.convertMessages(request.SystemMessage, request.Messages), c.convertTools(request.Tools))
 	var sessionId string
-	requestSeqId := (len(messages) + 1) / 2
-	if c.providerOptions.Debug {
+	requestSeqId := (len(request.Messages) + 1) / 2
+	if request.Debug {
 		// jsonData, _ := json.Marshal(params)
 		// logging.Debug("Prepared messages", "messages", string(jsonData))
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
@@ -403,15 +406,15 @@ func (c *copilotClient) Send(ctx context.Context, messages []message.Message, to
 	}
 }
 
-func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
-	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
+func (c *copilotClient) Stream(ctx context.Context, request llmclient.Request) <-chan llmclient.Event {
+	params := c.preparedParams(request.Model, c.convertMessages(request.SystemMessage, request.Messages), c.convertTools(request.Tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
 	}
 
 	var sessionId string
-	requestSeqId := (len(messages) + 1) / 2
-	if c.providerOptions.Debug {
+	requestSeqId := (len(request.Messages) + 1) / 2
+	if request.Debug {
 		if sid, ok := ctx.Value(toolcore.SessionIDContextKey).(string); ok {
 			sessionId = sid
 		}
@@ -447,7 +450,7 @@ func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, 
 				chunk := copilotStream.Current()
 				acc.AddChunk(chunk)
 
-				if c.providerOptions.Debug {
+				if request.Debug {
 					logging.AppendToStreamSessionLogJson(sessionId, requestSeqId, chunk)
 				}
 
@@ -461,7 +464,7 @@ func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, 
 					}
 				}
 
-				if c.isAnthropicModel() {
+				if c.isAnthropicModel(request.Model) {
 					// Monkeypatch adapter for Sonnet-4 multi-tool use
 					for _, choice := range chunk.Choices {
 						if choice.Delta.ToolCalls != nil && len(choice.Delta.ToolCalls) > 0 {
@@ -510,7 +513,7 @@ func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, 
 
 			err := copilotStream.Err()
 			if err == nil || errors.Is(err, io.EOF) {
-				if c.providerOptions.Debug {
+				if request.Debug {
 					respFilepath := logging.WriteChatResponseJson(sessionId, requestSeqId, acc.ChatCompletion)
 					logging.Debug("Chat completion response", "filepath", respFilepath)
 				}
@@ -588,7 +591,7 @@ func (c *copilotClient) shouldRetry(attempts int, err error) (bool, int64, error
 
 		// 2. API key from options
 		if githubToken == "" {
-			githubToken = c.providerOptions.APIKey
+			githubToken = c.githubToken
 		}
 
 		// 3. Standard GitHub CLI/Copilot locations
