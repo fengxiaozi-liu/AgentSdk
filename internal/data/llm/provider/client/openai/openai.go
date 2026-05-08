@@ -13,6 +13,7 @@ import (
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
+
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/shared"
@@ -165,7 +166,7 @@ func (o *openaiClient) finishReason(reason string) message.FinishReason {
 
 func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessageParamUnion, tools []openai.ChatCompletionToolParam) openai.ChatCompletionNewParams {
 	params := openai.ChatCompletionNewParams{
-		Model:    openai.ChatModel(o.providerOptions.Model.APIModel),
+		Model:    o.providerOptions.Model.APIModel,
 		Messages: messages,
 		Tools:    tools,
 	}
@@ -285,7 +286,7 @@ func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, t
 			err := openaiStream.Err()
 			if err == nil || errors.Is(err, io.EOF) {
 				// Stream completed successfully
-				finishReason := o.finishReason(string(acc.ChatCompletion.Choices[0].FinishReason))
+				finishReason := o.finishReason(acc.ChatCompletion.Choices[0].FinishReason)
 				if len(acc.ChatCompletion.Choices[0].Message.ToolCalls) > 0 {
 					toolCalls = append(toolCalls, o.toolCalls(acc.ChatCompletion)...)
 				}

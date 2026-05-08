@@ -48,7 +48,7 @@ type Service interface {
 	SetPrompts(prompts map[string]string)
 }
 
-type service struct {
+type PromptService struct {
 	prompts map[string]string
 }
 
@@ -75,10 +75,10 @@ func NewService(cfg PromptConfig) (Service, error) {
 }
 
 func New() Service {
-	return &service{prompts: make(map[string]string)}
+	return &PromptService{prompts: make(map[string]string)}
 }
 
-func (p *service) GetSystemPrompt(key string) (string, error) {
+func (p *PromptService) GetSystemPrompt(key string) (string, error) {
 	if p == nil {
 		return "", fmt.Errorf("%w: %s", ErrPromptKeyNotFound, key)
 	}
@@ -89,7 +89,7 @@ func (p *service) GetSystemPrompt(key string) (string, error) {
 	return prompt, nil
 }
 
-func (p *service) Has(key string) bool {
+func (p *PromptService) Has(key string) bool {
 	if p == nil {
 		return false
 	}
@@ -97,7 +97,7 @@ func (p *service) Has(key string) bool {
 	return ok
 }
 
-func (p *service) Keys() []string {
+func (p *PromptService) Keys() []string {
 	if p == nil {
 		return nil
 	}
@@ -109,7 +109,7 @@ func (p *service) Keys() []string {
 	return keys
 }
 
-func (p *service) SetPrompt(key, value string) {
+func (p *PromptService) SetPrompt(key, value string) {
 	if p == nil {
 		return
 	}
@@ -119,7 +119,7 @@ func (p *service) SetPrompt(key, value string) {
 	p.prompts[key] = value
 }
 
-func (p *service) SetPrompts(prompts map[string]string) {
+func (p *PromptService) SetPrompts(prompts map[string]string) {
 	for key, value := range prompts {
 		p.SetPrompt(key, value)
 	}
@@ -130,7 +130,7 @@ func LoadPath(path string) (Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &service{prompts: prompts}, nil
+	return &PromptService{prompts: prompts}, nil
 }
 
 func loadPrompts(path string) (map[string]string, error) {
