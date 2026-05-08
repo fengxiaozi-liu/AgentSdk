@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-
 	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"

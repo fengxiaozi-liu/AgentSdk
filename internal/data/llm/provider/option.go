@@ -1,13 +1,13 @@
 package provider
 
 import (
+	"ferryman-agent/internal/data/llm/client"
+	anthropicclient "ferryman-agent/internal/data/llm/client/anthropic"
+	bedrockclient "ferryman-agent/internal/data/llm/client/bedrock"
+	copilotclient "ferryman-agent/internal/data/llm/client/copilot"
+	geminiclient "ferryman-agent/internal/data/llm/client/gemini"
+	openaiclient "ferryman-agent/internal/data/llm/client/openai"
 	"ferryman-agent/internal/data/llm/models"
-	"ferryman-agent/internal/data/llm/provider/client"
-	anthropicclient "ferryman-agent/internal/data/llm/provider/client/anthropic"
-	bedrockclient "ferryman-agent/internal/data/llm/provider/client/bedrock"
-	copilotclient "ferryman-agent/internal/data/llm/provider/client/copilot"
-	geminiclient "ferryman-agent/internal/data/llm/provider/client/gemini"
-	openaiclient "ferryman-agent/internal/data/llm/provider/client/openai"
 )
 
 type providerClientOptions struct {

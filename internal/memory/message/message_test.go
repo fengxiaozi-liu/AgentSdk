@@ -2,10 +2,10 @@ package message
 
 import (
 	"context"
+	"ferryman-agent/internal/data/llm/models"
 	"testing"
 
 	datadb "ferryman-agent/internal/data/db"
-	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/data/repo"
 )
 

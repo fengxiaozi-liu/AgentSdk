@@ -3,6 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
+	"ferryman-agent/internal/data/llm/client"
+	"ferryman-agent/internal/data/llm/models"
+	"ferryman-agent/internal/data/llm/provider"
 	"fmt"
 	"strings"
 	"sync"
@@ -11,9 +14,6 @@ import (
 	mcptools "ferryman-agent/internal/capability/mcp"
 	workspace "ferryman-agent/internal/capability/workspace"
 	sdkconfig "ferryman-agent/internal/config"
-	"ferryman-agent/internal/data/llm/models"
-	"ferryman-agent/internal/data/llm/provider"
-	"ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/history"
 	"ferryman-agent/internal/memory/message"
@@ -582,7 +582,7 @@ func (a *agent) Update(profileKey string, modelID models.ModelID) (models.Model,
 	if profileKey != "" && profileKey != "coder" {
 		return models.Model{}, fmt.Errorf("model profile %s not supported", profileKey)
 	}
-	a.config.Provider.ModelConfig.Model = modelID
+	a.config.Provider.ModelConfig.ModelId = modelID
 	systemPrompt := ""
 	if a.prompt != nil && strings.TrimSpace(a.promptKey) != "" {
 		systemPrompt, _ = a.prompt.GetSystemPrompt(a.promptKey)

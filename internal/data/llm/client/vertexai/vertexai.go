@@ -2,15 +2,16 @@ package client
 
 import (
 	"context"
+	llmclient "ferryman-agent/internal/data/llm/client"
+	client3 "ferryman-agent/internal/data/llm/client/gemini"
 	"os"
 
-	llmclient "ferryman-agent/internal/data/llm/provider/client"
-	geminiclient "ferryman-agent/internal/data/llm/provider/client/gemini"
 	"ferryman-agent/internal/data/logging"
+
 	"google.golang.org/genai"
 )
 
-func NewClient(opts llmclient.Options, optionFns ...geminiclient.Option) llmclient.Client {
+func NewClient(opts llmclient.Options, optionFns ...client3.Option) llmclient.Client {
 	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
 		Project:  os.Getenv("VERTEXAI_PROJECT"),
 		Location: os.Getenv("VERTEXAI_LOCATION"),
@@ -21,5 +22,5 @@ func NewClient(opts llmclient.Options, optionFns ...geminiclient.Option) llmclie
 		return nil
 	}
 
-	return geminiclient.NewClientWithGenAI(opts, client, optionFns...)
+	return client3.NewClientWithGenAI(opts, client, optionFns...)
 }

@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	llmclient "ferryman-agent/internal/data/llm/client"
 	"fmt"
 	"io"
 	"time"
 
 	"ferryman-agent/internal/data/llm/models"
-	llmclient "ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"

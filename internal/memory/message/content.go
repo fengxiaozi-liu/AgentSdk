@@ -2,10 +2,9 @@ package message
 
 import (
 	"encoding/base64"
+	"ferryman-agent/internal/data/llm/models"
 	"slices"
 	"time"
-
-	"ferryman-agent/internal/data/llm/models"
 )
 
 type MessageRole string

@@ -9,10 +9,9 @@ import (
 //go:embed models.json
 var defaultModelsFS embed.FS
 
-type (
-	ModelID       string
-	ModelProvider string
-)
+type ModelID string
+
+type ModelProvider string
 
 const (
 	ProviderAnthropic  ModelProvider = "anthropic"
@@ -29,6 +28,13 @@ const (
 	ProviderMock       ModelProvider = "__mock"
 )
 
+type ModelConfig struct {
+	ModelId         ModelID `json:"model_id"`
+	APIModel        string  `json:"api_model"`
+	MaxTokens       int64   `json:"maxTokens,omitempty"`
+	ReasoningEffort string  `json:"reasoning_effort,omitempty"`
+}
+
 type Model struct {
 	ID                  ModelID `json:"id"`
 	Name                string  `json:"name"`
@@ -41,6 +47,7 @@ type Model struct {
 	DefaultMaxTokens    int64   `json:"default_max_tokens"`
 	CanReason           bool    `json:"can_reason"`
 	SupportsAttachments bool    `json:"supports_attachments"`
+	ReasoningEffort     string  `json:"reasoning_effort,omitempty"`
 }
 
 type ProviderModels struct {

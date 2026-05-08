@@ -1,11 +1,11 @@
 package config
 
 import (
+	"ferryman-agent/internal/data/llm/provider"
 	"fmt"
 	"os"
 
 	datadb "ferryman-agent/internal/data/db"
-	"ferryman-agent/internal/data/llm/provider"
 	"ferryman-agent/internal/prompt"
 
 	"github.com/google/wire"
@@ -19,7 +19,7 @@ const (
 	MCPStdio                 MCPType = "stdio"
 	MCPSse                   MCPType = "sse"
 	DefaultDataDirectory             = ".ferryer"
-	MaxTokensFallbackDefault         = 4096
+	MaxTokensFallbackDefault         = 200000
 )
 
 var cfg *Config
@@ -134,20 +134,20 @@ func Validate(config Config) error {
 }
 
 func validateOptionalProviderConfig(name string, providerCfg provider.ProviderConfig) error {
-	if providerCfg.Provider == "" && providerCfg.ModelConfig.Model == "" && providerCfg.APIKey == "" && providerCfg.BaseURL == "" {
+	if providerCfg.Provider == "" && providerCfg.ModelConfig.ModelId == "" && providerCfg.APIKey == "" && providerCfg.BaseURL == "" {
 		return nil
 	}
 	return validateProviderConfig(name, providerCfg)
 }
 
 func validateProviderConfig(name string, providerCfg provider.ProviderConfig) error {
-	if providerCfg.Provider == "" && providerCfg.ModelConfig.Model == "" {
+	if providerCfg.Provider == "" && providerCfg.ModelConfig.ModelId == "" {
 		return nil
 	}
 	if providerCfg.Provider == "" {
 		return fmt.Errorf("%s provider is required", name)
 	}
-	if providerCfg.ModelConfig.Model == "" {
+	if providerCfg.ModelConfig.ModelId == "" {
 		return fmt.Errorf("%s model is required", name)
 	}
 	return nil

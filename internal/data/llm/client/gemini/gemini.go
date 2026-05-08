@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	llmclient "ferryman-agent/internal/data/llm/client"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 
-	llmclient "ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
+
 	"github.com/google/uuid"
 	"google.golang.org/genai"
 )

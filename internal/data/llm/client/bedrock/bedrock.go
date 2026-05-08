@@ -3,12 +3,12 @@ package client
 import (
 	"context"
 	"errors"
+	llmclient "ferryman-agent/internal/data/llm/client"
+	client3 "ferryman-agent/internal/data/llm/client/anthropic"
 	"fmt"
 	"os"
 	"strings"
 
-	llmclient "ferryman-agent/internal/data/llm/provider/client"
-	anthropicclient "ferryman-agent/internal/data/llm/provider/client/anthropic"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
 )
@@ -53,7 +53,7 @@ func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
 		return &bedrockClient{
 			providerOptions: opts,
 			options:         bedrockOpts,
-			childProvider:   anthropicclient.NewClient(opts, anthropicclient.WithBedrock(true), anthropicclient.WithDisableCache()),
+			childProvider:   client3.NewClient(opts, client3.WithBedrock(true), client3.WithDisableCache()),
 		}
 	}
 

@@ -2,26 +2,26 @@ package provider
 
 import (
 	"context"
+	client2 "ferryman-agent/internal/data/llm/client"
+	anthropicclient "ferryman-agent/internal/data/llm/client/anthropic"
+	azureclient "ferryman-agent/internal/data/llm/client/azure"
+	bedrockclient "ferryman-agent/internal/data/llm/client/bedrock"
+	copilotclient "ferryman-agent/internal/data/llm/client/copilot"
+	geminiclient "ferryman-agent/internal/data/llm/client/gemini"
+	mockclient "ferryman-agent/internal/data/llm/client/mock"
+	openaiclient "ferryman-agent/internal/data/llm/client/openai"
+	vertexaiclient "ferryman-agent/internal/data/llm/client/vertexai"
+	"ferryman-agent/internal/data/llm/models"
 	"fmt"
 	"os"
 
-	"ferryman-agent/internal/data/llm/models"
-	"ferryman-agent/internal/data/llm/provider/client"
-	anthropicclient "ferryman-agent/internal/data/llm/provider/client/anthropic"
-	azureclient "ferryman-agent/internal/data/llm/provider/client/azure"
-	bedrockclient "ferryman-agent/internal/data/llm/provider/client/bedrock"
-	copilotclient "ferryman-agent/internal/data/llm/provider/client/copilot"
-	geminiclient "ferryman-agent/internal/data/llm/provider/client/gemini"
-	mockclient "ferryman-agent/internal/data/llm/provider/client/mock"
-	openaiclient "ferryman-agent/internal/data/llm/provider/client/openai"
-	vertexaiclient "ferryman-agent/internal/data/llm/provider/client/vertexai"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
 )
 
 type Provider interface {
-	SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client.Response, error)
-	StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client.Event
+	SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client2.Response, error)
+	StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client2.Event
 	Model() models.Model
 }
 
@@ -29,30 +29,49 @@ type ProviderConfig struct {
 	Provider    models.ModelProvider `json:"provider"`
 	APIKey      string               `json:"apiKey"`
 	BaseURL     string               `json:"baseURL"`
-	ModelConfig ModelConfig          `json:"modelConfig"`
+	ModelConfig models.ModelConfig   `json:"modelConfig"`
 	Disabled    bool                 `json:"disabled"`
 }
 
-type ModelConfig struct {
-	Model           models.ModelID `json:"model"`
-	MaxTokens       int64          `json:"maxTokens,omitempty"`
-	ReasoningEffort string         `json:"reasoningEffort,omitempty"`
+type baseProvider struct {
+	options client2.Options
+	client  client2.Client
 }
 
-type baseProvider struct {
-	options client.Options
-	client  client.Client
+func (p *baseProvider) cleanMessages(messages []message.Message) (cleaned []message.Message) {
+	for _, msg := range messages {
+		// The message has no content
+		if len(msg.Parts) == 0 {
+			continue
+		}
+		cleaned = append(cleaned, msg)
+	}
+	return
+}
+
+func (p *baseProvider) SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client2.Response, error) {
+	messages = p.cleanMessages(messages)
+	return p.client.Send(ctx, messages, tools)
+}
+
+func (p *baseProvider) Model() models.Model {
+	return p.options.Model
+}
+
+func (p *baseProvider) StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client2.Event {
+	messages = p.cleanMessages(messages)
+	return p.client.Stream(ctx, messages, tools)
 }
 
 func CreateProvider(providerCfg ProviderConfig, systemPrompt string, extraOpts ...ProviderClientOption) (Provider, error) {
 	providerName := providerCfg.Provider
 	if providerName == "" {
-		return nil, fmt.Errorf("provider is required for model %s", providerCfg.ModelConfig.Model)
+		return nil, fmt.Errorf("provider is required for model %s", providerCfg.ModelConfig.ModelId)
 	}
 	if providerCfg.Disabled {
 		return nil, fmt.Errorf("provider %s is not enabled", providerName)
 	}
-	model := models.ResolveModel(providerName, providerCfg.ModelConfig.Model)
+	model := models.ResolveModel(providerName, providerCfg.ModelConfig.ModelId)
 	maxTokens := model.DefaultMaxTokens
 	if providerCfg.ModelConfig.MaxTokens > 0 {
 		maxTokens = providerCfg.ModelConfig.MaxTokens
@@ -97,7 +116,7 @@ func CreateProvider(providerCfg ProviderConfig, systemPrompt string, extraOpts .
 }
 
 func Configured(providerCfg ProviderConfig) bool {
-	return providerCfg.Provider != "" || providerCfg.ModelConfig.Model != ""
+	return providerCfg.Provider != "" || providerCfg.ModelConfig.ModelId != ""
 }
 
 func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption) (Provider, error) {
@@ -184,29 +203,4 @@ func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption
 		}, nil
 	}
 	return nil, fmt.Errorf("provider not supported: %s", providerName)
-}
-
-func (p *baseProvider) cleanMessages(messages []message.Message) (cleaned []message.Message) {
-	for _, msg := range messages {
-		// The message has no content
-		if len(msg.Parts) == 0 {
-			continue
-		}
-		cleaned = append(cleaned, msg)
-	}
-	return
-}
-
-func (p *baseProvider) SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client.Response, error) {
-	messages = p.cleanMessages(messages)
-	return p.client.Send(ctx, messages, tools)
-}
-
-func (p *baseProvider) Model() models.Model {
-	return p.options.Model
-}
-
-func (p *baseProvider) StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client.Event {
-	messages = p.cleanMessages(messages)
-	return p.client.Stream(ctx, messages, tools)
 }

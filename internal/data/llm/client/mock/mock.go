@@ -2,9 +2,9 @@ package client
 
 import (
 	"context"
+	llmclient "ferryman-agent/internal/data/llm/client"
 	"strings"
 
-	llmclient "ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
 )
