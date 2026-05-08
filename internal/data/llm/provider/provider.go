@@ -2,7 +2,7 @@ package provider
 
 import (
 	"context"
-	client2 "ferryman-agent/internal/data/llm/client"
+	client "ferryman-agent/internal/data/llm/client"
 	anthropicclient "ferryman-agent/internal/data/llm/client/anthropic"
 	azureclient "ferryman-agent/internal/data/llm/client/azure"
 	bedrockclient "ferryman-agent/internal/data/llm/client/bedrock"
@@ -19,12 +19,6 @@ import (
 	toolcore "ferryman-agent/internal/tools"
 )
 
-type Provider interface {
-	SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client2.Response, error)
-	StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client2.Event
-	Model() models.Model
-}
-
 type ProviderConfig struct {
 	Provider    models.ModelProvider `json:"provider"`
 	APIKey      string               `json:"apiKey"`
@@ -33,9 +27,15 @@ type ProviderConfig struct {
 	Disabled    bool                 `json:"disabled"`
 }
 
+type Provider interface {
+	SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client.Response, error)
+	StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client.Event
+	Model() models.Model
+}
+
 type baseProvider struct {
-	options client2.Options
-	client  client2.Client
+	options client.Options
+	client  client.Client
 }
 
 func (p *baseProvider) cleanMessages(messages []message.Message) (cleaned []message.Message) {
@@ -49,7 +49,7 @@ func (p *baseProvider) cleanMessages(messages []message.Message) (cleaned []mess
 	return
 }
 
-func (p *baseProvider) SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client2.Response, error) {
+func (p *baseProvider) SendMessages(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*client.Response, error) {
 	messages = p.cleanMessages(messages)
 	return p.client.Send(ctx, messages, tools)
 }
@@ -58,7 +58,7 @@ func (p *baseProvider) Model() models.Model {
 	return p.options.Model
 }
 
-func (p *baseProvider) StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client2.Event {
+func (p *baseProvider) StreamResponse(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan client.Event {
 	messages = p.cleanMessages(messages)
 	return p.client.Stream(ctx, messages, tools)
 }
