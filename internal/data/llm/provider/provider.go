@@ -7,6 +7,14 @@ import (
 
 	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/data/llm/provider/client"
+	anthropicclient "ferryman-agent/internal/data/llm/provider/client/anthropic"
+	azureclient "ferryman-agent/internal/data/llm/provider/client/azure"
+	bedrockclient "ferryman-agent/internal/data/llm/provider/client/bedrock"
+	copilotclient "ferryman-agent/internal/data/llm/provider/client/copilot"
+	geminiclient "ferryman-agent/internal/data/llm/provider/client/gemini"
+	mockclient "ferryman-agent/internal/data/llm/provider/client/mock"
+	openaiclient "ferryman-agent/internal/data/llm/provider/client/openai"
+	vertexaiclient "ferryman-agent/internal/data/llm/provider/client/vertexai"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
 )
@@ -60,21 +68,21 @@ func CreateProvider(providerCfg ProviderConfig, systemPrompt string, extraOpts .
 		opts = append(
 			opts,
 			WithOpenAIOptions(
-				client.WithReasoningEffort(providerCfg.ModelConfig.ReasoningEffort),
+				openaiclient.WithReasoningEffort(providerCfg.ModelConfig.ReasoningEffort),
 			),
 		)
 	} else if providerName == models.ProviderAnthropic && model.CanReason {
 		opts = append(
 			opts,
 			WithAnthropicOptions(
-				client.WithAnthropicShouldThinkFn(client.DefaultShouldThinkFn),
+				anthropicclient.WithShouldThinkFn(anthropicclient.DefaultShouldThinkFn),
 			),
 		)
 	}
 	if providerCfg.BaseURL != "" {
 		switch providerName {
 		case models.ProviderOpenAI, models.ProviderGROQ, models.ProviderOpenRouter, models.ProviderXAI, models.ProviderLocal:
-			opts = append(opts, WithOpenAIOptions(client.WithOpenAIBaseURL(providerCfg.BaseURL)))
+			opts = append(opts, WithOpenAIOptions(openaiclient.WithBaseURL(providerCfg.BaseURL)))
 		}
 	}
 	createdProvider, err := NewProvider(
@@ -93,86 +101,86 @@ func Configured(providerCfg ProviderConfig) bool {
 }
 
 func NewProvider(providerName models.ModelProvider, opts ...ProviderClientOption) (Provider, error) {
-	clientOptions := client.Options{}
+	clientOptions := providerClientOptions{}
 	for _, o := range opts {
 		o(&clientOptions)
 	}
 	switch providerName {
 	case models.ProviderCopilot:
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewCopilotClient(clientOptions),
+			options: clientOptions.Options,
+			client:  copilotclient.NewClient(clientOptions.Options, clientOptions.CopilotOptions...),
 		}, nil
 	case models.ProviderAnthropic:
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewAnthropicClient(clientOptions),
+			options: clientOptions.Options,
+			client:  anthropicclient.NewClient(clientOptions.Options, clientOptions.AnthropicOptions...),
 		}, nil
 	case models.ProviderOpenAI:
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewOpenAIClient(clientOptions),
+			options: clientOptions.Options,
+			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderGemini:
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewGeminiClient(clientOptions),
+			options: clientOptions.Options,
+			client:  geminiclient.NewClient(clientOptions.Options, clientOptions.GeminiOptions...),
 		}, nil
 	case models.ProviderBedrock:
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewBedrockClient(clientOptions),
+			options: clientOptions.Options,
+			client:  bedrockclient.NewClient(clientOptions.Options, clientOptions.BedrockOptions...),
 		}, nil
 	case models.ProviderGROQ:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
-			client.WithOpenAIDefaultBaseURL("https://api.groq.com/openai/v1"),
+			openaiclient.WithDefaultBaseURL("https://api.groq.com/openai/v1"),
 		)
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewOpenAIClient(clientOptions),
+			options: clientOptions.Options,
+			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderAzure:
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewAzureClient(clientOptions),
+			options: clientOptions.Options,
+			client:  azureclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderVertexAI:
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewVertexAIClient(clientOptions),
+			options: clientOptions.Options,
+			client:  vertexaiclient.NewClient(clientOptions.Options, clientOptions.GeminiOptions...),
 		}, nil
 	case models.ProviderOpenRouter:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
-			client.WithOpenAIDefaultBaseURL("https://openrouter.ai/api/v1"),
-			client.WithOpenAIExtraHeaders(map[string]string{
+			openaiclient.WithDefaultBaseURL("https://openrouter.ai/api/v1"),
+			openaiclient.WithExtraHeaders(map[string]string{
 				"HTTP-Referer": "ferryer.ai",
 				"X-Title":      "Ferryer",
 			}),
 		)
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewOpenAIClient(clientOptions),
+			options: clientOptions.Options,
+			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderXAI:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
-			client.WithOpenAIDefaultBaseURL("https://api.x.ai/v1"),
+			openaiclient.WithDefaultBaseURL("https://api.x.ai/v1"),
 		)
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewOpenAIClient(clientOptions),
+			options: clientOptions.Options,
+			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderLocal:
 		clientOptions.OpenAIOptions = append(clientOptions.OpenAIOptions,
-			client.WithOpenAIDefaultBaseURL(os.Getenv("LOCAL_ENDPOINT")),
+			openaiclient.WithDefaultBaseURL(os.Getenv("LOCAL_ENDPOINT")),
 		)
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewOpenAIClient(clientOptions),
+			options: clientOptions.Options,
+			client:  openaiclient.NewClient(clientOptions.Options, clientOptions.OpenAIOptions...),
 		}, nil
 	case models.ProviderMock:
 		return &baseProvider{
-			options: clientOptions,
-			client:  client.NewMockClient(clientOptions),
+			options: clientOptions.Options,
+			client:  mockclient.NewClient(clientOptions.Options),
 		}, nil
 	}
 	return nil, fmt.Errorf("provider not supported: %s", providerName)

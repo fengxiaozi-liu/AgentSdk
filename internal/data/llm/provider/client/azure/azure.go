@@ -3,6 +3,8 @@ package client
 import (
 	"os"
 
+	llmclient "ferryman-agent/internal/data/llm/provider/client"
+	openaiclient "ferryman-agent/internal/data/llm/provider/client/openai"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/azure"
@@ -10,18 +12,16 @@ import (
 )
 
 type azureClient struct {
-	*openaiClient
+	llmclient.Client
 }
 
-type AzureClient Client
-
-func NewAzureClient(opts Options) AzureClient {
+func NewClient(opts llmclient.Options, optionFns ...openaiclient.Option) llmclient.Client {
 
 	endpoint := os.Getenv("AZURE_OPENAI_ENDPOINT")      // ex: https://foo.openai.azure.com
 	apiVersion := os.Getenv("AZURE_OPENAI_API_VERSION") // ex: 2025-04-01-preview
 
 	if endpoint == "" || apiVersion == "" {
-		return &azureClient{openaiClient: NewOpenAIClient(opts).(*openaiClient)}
+		return &azureClient{Client: openaiclient.NewClient(opts, optionFns...)}
 	}
 
 	reqOpts := []option.RequestOption{
@@ -38,10 +38,7 @@ func NewAzureClient(opts Options) AzureClient {
 		reqOpts = append(reqOpts, azure.WithTokenCredential(cred))
 	}
 
-	base := &openaiClient{
-		providerOptions: opts,
-		client:          openai.NewClient(reqOpts...),
-	}
+	base := openaiclient.NewClientWithOpenAI(opts, openai.NewClient(reqOpts...), optionFns...)
 
-	return &azureClient{openaiClient: base}
+	return &azureClient{Client: base}
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	llmclient "ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
@@ -16,23 +17,15 @@ import (
 	"google.golang.org/genai"
 )
 
-type geminiOptions struct {
-	disableCache bool
-}
-
-type GeminiOption func(*geminiOptions)
-
 type geminiClient struct {
-	providerOptions Options
-	options         geminiOptions
+	providerOptions llmclient.Options
+	options         options
 	client          *genai.Client
 }
 
-type GeminiClient Client
-
-func NewGeminiClient(opts Options) GeminiClient {
-	geminiOpts := geminiOptions{}
-	for _, o := range opts.GeminiOptions {
+func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+	geminiOpts := options{}
+	for _, o := range optionFns {
 		o(&geminiOpts)
 	}
 
@@ -40,6 +33,19 @@ func NewGeminiClient(opts Options) GeminiClient {
 	if err != nil {
 		logging.Error("Failed to create Gemini client", "error", err)
 		return nil
+	}
+
+	return &geminiClient{
+		providerOptions: opts,
+		options:         geminiOpts,
+		client:          client,
+	}
+}
+
+func NewClientWithGenAI(opts llmclient.Options, client *genai.Client, optionFns ...Option) llmclient.Client {
+	geminiOpts := options{}
+	for _, o := range optionFns {
+		o(&geminiOpts)
 	}
 
 	return &geminiClient{
@@ -164,7 +170,7 @@ func (g *geminiClient) finishReason(reason genai.FinishReason) message.FinishRea
 	}
 }
 
-func (g *geminiClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*Response, error) {
+func (g *geminiClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*llmclient.Response, error) {
 	// Convert messages
 	geminiMessages := g.convertMessages(messages)
 
@@ -203,7 +209,7 @@ func (g *geminiClient) Send(ctx context.Context, messages []message.Message, too
 				return nil, retryErr
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, llmclient.MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -242,7 +248,7 @@ func (g *geminiClient) Send(ctx context.Context, messages []message.Message, too
 			finishReason = message.FinishReasonToolUse
 		}
 
-		return &Response{
+		return &llmclient.Response{
 			Content:      content,
 			ToolCalls:    toolCalls,
 			Usage:        g.usage(resp),
@@ -251,7 +257,7 @@ func (g *geminiClient) Send(ctx context.Context, messages []message.Message, too
 	}
 }
 
-func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
+func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
 	// Convert messages
 	geminiMessages := g.convertMessages(messages)
 
@@ -274,7 +280,7 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 	chat, _ := g.client.Chats.Create(ctx, g.providerOptions.Model.APIModel, config, history)
 
 	attempts := 0
-	eventChan := make(chan Event)
+	eventChan := make(chan llmclient.Event)
 
 	go func() {
 		defer close(eventChan)
@@ -286,7 +292,7 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 			toolCalls := []message.ToolCall{}
 			var finalResp *genai.GenerateContentResponse
 
-			eventChan <- Event{Type: EventContentStart}
+			eventChan <- llmclient.Event{Type: llmclient.EventContentStart}
 
 			var lastMsgParts []genai.Part
 
@@ -297,15 +303,15 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 				if err != nil {
 					retry, after, retryErr := g.shouldRetry(attempts, err)
 					if retryErr != nil {
-						eventChan <- Event{Type: EventError, Error: retryErr}
+						eventChan <- llmclient.Event{Type: llmclient.EventError, Error: retryErr}
 						return
 					}
 					if retry {
-						logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+						logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, llmclient.MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 						select {
 						case <-ctx.Done():
 							if ctx.Err() != nil {
-								eventChan <- Event{Type: EventError, Error: ctx.Err()}
+								eventChan <- llmclient.Event{Type: llmclient.EventError, Error: ctx.Err()}
 							}
 
 							return
@@ -313,7 +319,7 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 							break
 						}
 					} else {
-						eventChan <- Event{Type: EventError, Error: err}
+						eventChan <- llmclient.Event{Type: llmclient.EventError, Error: err}
 						return
 					}
 				}
@@ -326,8 +332,8 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 						case part.Text != "":
 							delta := string(part.Text)
 							if delta != "" {
-								eventChan <- Event{
-									Type:    EventContentDelta,
+								eventChan <- llmclient.Event{
+									Type:    llmclient.EventContentDelta,
 									Content: delta,
 								}
 								currentContent += delta
@@ -359,7 +365,7 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 				}
 			}
 
-			eventChan <- Event{Type: EventContentStop}
+			eventChan <- llmclient.Event{Type: llmclient.EventContentStop}
 
 			if finalResp != nil {
 
@@ -370,9 +376,9 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 				if len(toolCalls) > 0 {
 					finishReason = message.FinishReasonToolUse
 				}
-				eventChan <- Event{
-					Type: EventComplete,
-					Response: &Response{
+				eventChan <- llmclient.Event{
+					Type: llmclient.EventComplete,
+					Response: &llmclient.Response{
 						Content:      currentContent,
 						ToolCalls:    toolCalls,
 						Usage:        g.usage(finalResp),
@@ -390,8 +396,8 @@ func (g *geminiClient) Stream(ctx context.Context, messages []message.Message, t
 
 func (g *geminiClient) shouldRetry(attempts int, err error) (bool, int64, error) {
 	// Check if error is a rate limit error
-	if attempts > MaxRetries {
-		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", MaxRetries)
+	if attempts > llmclient.MaxRetries {
+		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", llmclient.MaxRetries)
 	}
 
 	// Gemini doesn't have a standard error type we can check against
@@ -441,22 +447,16 @@ func (g *geminiClient) toolCalls(resp *genai.GenerateContentResponse) []message.
 	return toolCalls
 }
 
-func (g *geminiClient) usage(resp *genai.GenerateContentResponse) TokenUsage {
+func (g *geminiClient) usage(resp *genai.GenerateContentResponse) llmclient.TokenUsage {
 	if resp == nil || resp.UsageMetadata == nil {
-		return TokenUsage{}
+		return llmclient.TokenUsage{}
 	}
 
-	return TokenUsage{
+	return llmclient.TokenUsage{
 		InputTokens:         int64(resp.UsageMetadata.PromptTokenCount),
 		OutputTokens:        int64(resp.UsageMetadata.CandidatesTokenCount),
 		CacheCreationTokens: 0, // Not directly provided by Gemini
 		CacheReadTokens:     int64(resp.UsageMetadata.CachedContentTokenCount),
-	}
-}
-
-func WithGeminiDisableCache() GeminiOption {
-	return func(options *geminiOptions) {
-		options.disableCache = true
 	}
 }
 

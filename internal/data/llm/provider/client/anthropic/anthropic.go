@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"ferryman-agent/internal/data/llm/models"
+	llmclient "ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
@@ -18,25 +18,15 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-type anthropicOptions struct {
-	useBedrock   bool
-	disableCache bool
-	shouldThink  func(userMessage string) bool
-}
-
-type AnthropicOption func(*anthropicOptions)
-
 type anthropicClient struct {
-	providerOptions Options
-	options         anthropicOptions
+	providerOptions llmclient.Options
+	options         options
 	client          anthropic.Client
 }
 
-type AnthropicClient Client
-
-func NewAnthropicClient(opts Options) AnthropicClient {
-	anthropicOpts := anthropicOptions{}
-	for _, o := range opts.AnthropicOptions {
+func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+	anthropicOpts := options{}
+	for _, o := range optionFns {
 		o(&anthropicOpts)
 	}
 
@@ -194,7 +184,7 @@ func (a *anthropicClient) preparedMessages(messages []anthropic.MessageParam, to
 	}
 }
 
-func (a *anthropicClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (resposne *Response, err error) {
+func (a *anthropicClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (resposne *llmclient.Response, err error) {
 	preparedMessages := a.preparedMessages(a.convertMessages(messages), a.convertTools(tools))
 	if a.providerOptions.Debug {
 		jsonData, _ := json.Marshal(preparedMessages)
@@ -216,7 +206,7 @@ func (a *anthropicClient) Send(ctx context.Context, messages []message.Message, 
 				return nil, retryErr
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, llmclient.MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -234,7 +224,7 @@ func (a *anthropicClient) Send(ctx context.Context, messages []message.Message, 
 			}
 		}
 
-		return &Response{
+		return &llmclient.Response{
 			Content:   content,
 			ToolCalls: a.toolCalls(*anthropicResponse),
 			Usage:     a.usage(*anthropicResponse),
@@ -242,7 +232,7 @@ func (a *anthropicClient) Send(ctx context.Context, messages []message.Message, 
 	}
 }
 
-func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
+func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
 	preparedMessages := a.preparedMessages(a.convertMessages(messages), a.convertTools(tools))
 
 	var sessionId string
@@ -261,7 +251,7 @@ func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message
 
 	}
 	attempts := 0
-	eventChan := make(chan Event)
+	eventChan := make(chan llmclient.Event)
 	go func() {
 		for {
 			attempts++
@@ -283,11 +273,11 @@ func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message
 				switch event := event.AsAny().(type) {
 				case anthropic.ContentBlockStartEvent:
 					if event.ContentBlock.Type == "text" {
-						eventChan <- Event{Type: EventContentStart}
+						eventChan <- llmclient.Event{Type: llmclient.EventContentStart}
 					} else if event.ContentBlock.Type == "tool_use" {
 						currentToolCallID = event.ContentBlock.ID
-						eventChan <- Event{
-							Type: EventToolUseStart,
+						eventChan <- llmclient.Event{
+							Type: llmclient.EventToolUseStart,
 							ToolCall: &message.ToolCall{
 								ID:       event.ContentBlock.ID,
 								Name:     event.ContentBlock.Name,
@@ -298,19 +288,19 @@ func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message
 
 				case anthropic.ContentBlockDeltaEvent:
 					if event.Delta.Type == "thinking_delta" && event.Delta.Thinking != "" {
-						eventChan <- Event{
-							Type:     EventThinkingDelta,
+						eventChan <- llmclient.Event{
+							Type:     llmclient.EventThinkingDelta,
 							Thinking: event.Delta.Thinking,
 						}
 					} else if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
-						eventChan <- Event{
-							Type:    EventContentDelta,
+						eventChan <- llmclient.Event{
+							Type:    llmclient.EventContentDelta,
 							Content: event.Delta.Text,
 						}
 					} else if event.Delta.Type == "input_json_delta" {
 						if currentToolCallID != "" {
-							eventChan <- Event{
-								Type: EventToolUseDelta,
+							eventChan <- llmclient.Event{
+								Type: llmclient.EventToolUseDelta,
 								ToolCall: &message.ToolCall{
 									ID:       currentToolCallID,
 									Finished: false,
@@ -321,15 +311,15 @@ func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message
 					}
 				case anthropic.ContentBlockStopEvent:
 					if currentToolCallID != "" {
-						eventChan <- Event{
-							Type: EventToolUseStop,
+						eventChan <- llmclient.Event{
+							Type: llmclient.EventToolUseStop,
 							ToolCall: &message.ToolCall{
 								ID: currentToolCallID,
 							},
 						}
 						currentToolCallID = ""
 					} else {
-						eventChan <- Event{Type: EventContentStop}
+						eventChan <- llmclient.Event{Type: llmclient.EventContentStop}
 					}
 
 				case anthropic.MessageStopEvent:
@@ -340,9 +330,9 @@ func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message
 						}
 					}
 
-					eventChan <- Event{
-						Type: EventComplete,
-						Response: &Response{
+					eventChan <- llmclient.Event{
+						Type: llmclient.EventComplete,
+						Response: &llmclient.Response{
 							Content:      content,
 							ToolCalls:    a.toolCalls(accumulatedMessage),
 							Usage:        a.usage(accumulatedMessage),
@@ -360,17 +350,17 @@ func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message
 			// If there is an error we are going to see if we can retry the call
 			retry, after, retryErr := a.shouldRetry(attempts, err)
 			if retryErr != nil {
-				eventChan <- Event{Type: EventError, Error: retryErr}
+				eventChan <- llmclient.Event{Type: llmclient.EventError, Error: retryErr}
 				close(eventChan)
 				return
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, llmclient.MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					// context cancelled
 					if ctx.Err() != nil {
-						eventChan <- Event{Type: EventError, Error: ctx.Err()}
+						eventChan <- llmclient.Event{Type: llmclient.EventError, Error: ctx.Err()}
 					}
 					close(eventChan)
 					return
@@ -379,7 +369,7 @@ func (a *anthropicClient) Stream(ctx context.Context, messages []message.Message
 				}
 			}
 			if ctx.Err() != nil {
-				eventChan <- Event{Type: EventError, Error: ctx.Err()}
+				eventChan <- llmclient.Event{Type: llmclient.EventError, Error: ctx.Err()}
 			}
 
 			close(eventChan)
@@ -399,8 +389,8 @@ func (a *anthropicClient) shouldRetry(attempts int, err error) (bool, int64, err
 		return false, 0, err
 	}
 
-	if attempts > MaxRetries {
-		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", MaxRetries)
+	if attempts > llmclient.MaxRetries {
+		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", llmclient.MaxRetries)
 	}
 
 	retryMs := 0
@@ -437,33 +427,11 @@ func (a *anthropicClient) toolCalls(msg anthropic.Message) []message.ToolCall {
 	return toolCalls
 }
 
-func (a *anthropicClient) usage(msg anthropic.Message) TokenUsage {
-	return TokenUsage{
+func (a *anthropicClient) usage(msg anthropic.Message) llmclient.TokenUsage {
+	return llmclient.TokenUsage{
 		InputTokens:         msg.Usage.InputTokens,
 		OutputTokens:        msg.Usage.OutputTokens,
 		CacheCreationTokens: msg.Usage.CacheCreationInputTokens,
 		CacheReadTokens:     msg.Usage.CacheReadInputTokens,
-	}
-}
-
-func WithAnthropicBedrock(useBedrock bool) AnthropicOption {
-	return func(options *anthropicOptions) {
-		options.useBedrock = useBedrock
-	}
-}
-
-func WithAnthropicDisableCache() AnthropicOption {
-	return func(options *anthropicOptions) {
-		options.disableCache = true
-	}
-}
-
-func DefaultShouldThinkFn(s string) bool {
-	return strings.Contains(strings.ToLower(s), "think")
-}
-
-func WithAnthropicShouldThinkFn(fn func(string) bool) AnthropicOption {
-	return func(options *anthropicOptions) {
-		options.shouldThink = fn
 	}
 }

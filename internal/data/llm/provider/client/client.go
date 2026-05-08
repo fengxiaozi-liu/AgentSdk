@@ -49,16 +49,11 @@ type Event struct {
 }
 
 type Options struct {
-	APIKey           string
-	Model            models.Model
-	MaxTokens        int64
-	SystemMessage    string
-	Debug            bool
-	AnthropicOptions []AnthropicOption
-	OpenAIOptions    []OpenAIOption
-	GeminiOptions    []GeminiOption
-	BedrockOptions   []BedrockOption
-	CopilotOptions   []CopilotOption
+	APIKey        string
+	Model         models.Model
+	MaxTokens     int64
+	SystemMessage string
+	Debug         bool
 }
 
 type Client interface {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ferryman-agent/internal/data/llm/models"
+	llmclient "ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
@@ -22,22 +23,12 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
-type copilotOptions struct {
-	reasoningEffort string
-	extraHeaders    map[string]string
-	bearerToken     string
-}
-
-type CopilotOption func(*copilotOptions)
-
 type copilotClient struct {
-	providerOptions Options
-	options         copilotOptions
+	providerOptions llmclient.Options
+	options         options
 	client          openai.Client
 	httpClient      *http.Client
 }
-
-type CopilotClient Client
 
 // CopilotTokenResponse represents the response from GitHub's token exchange endpoint
 type CopilotTokenResponse struct {
@@ -122,12 +113,12 @@ func (c *copilotClient) exchangeGitHubToken(githubToken string) (string, error) 
 	return tokenResp.Token, nil
 }
 
-func NewCopilotClient(opts Options) CopilotClient {
-	copilotOpts := copilotOptions{
+func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+	copilotOpts := options{
 		reasoningEffort: "medium",
 	}
 	// Apply copilot-specific options
-	for _, o := range opts.CopilotOptions {
+	for _, o := range optionFns {
 		o(&copilotOpts)
 	}
 
@@ -345,7 +336,7 @@ func (c *copilotClient) preparedParams(messages []openai.ChatCompletionMessagePa
 	return params
 }
 
-func (c *copilotClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *Response, err error) {
+func (c *copilotClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *llmclient.Response, err error) {
 	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
 	var sessionId string
 	requestSeqId := (len(messages) + 1) / 2
@@ -379,7 +370,7 @@ func (c *copilotClient) Send(ctx context.Context, messages []message.Message, to
 				return nil, retryErr
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, llmclient.MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -402,7 +393,7 @@ func (c *copilotClient) Send(ctx context.Context, messages []message.Message, to
 			finishReason = message.FinishReasonToolUse
 		}
 
-		return &Response{
+		return &llmclient.Response{
 			Content:      content,
 			ToolCalls:    toolCalls,
 			Usage:        c.usage(*copilotResponse),
@@ -411,7 +402,7 @@ func (c *copilotClient) Send(ctx context.Context, messages []message.Message, to
 	}
 }
 
-func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
+func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
 	params := c.preparedParams(c.convertMessages(messages), c.convertTools(tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
@@ -434,7 +425,7 @@ func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, 
 	}
 
 	attempts := 0
-	eventChan := make(chan Event)
+	eventChan := make(chan llmclient.Event)
 
 	go func() {
 		for {
@@ -461,8 +452,8 @@ func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, 
 
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Content != "" {
-						eventChan <- Event{
-							Type:    EventContentDelta,
+						eventChan <- llmclient.Event{
+							Type:    llmclient.EventContentDelta,
 							Content: choice.Delta.Content,
 						}
 						currentContent += choice.Delta.Content
@@ -531,9 +522,9 @@ func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, 
 					finishReason = message.FinishReasonToolUse
 				}
 
-				eventChan <- Event{
-					Type: EventComplete,
-					Response: &Response{
+				eventChan <- llmclient.Event{
+					Type: llmclient.EventComplete,
+					Response: &llmclient.Response{
 						Content:      currentContent,
 						ToolCalls:    toolCalls,
 						Usage:        c.usage(acc.ChatCompletion),
@@ -547,23 +538,23 @@ func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, 
 			// If there is an error we are going to see if we can retry the call
 			retry, after, retryErr := c.shouldRetry(attempts, err)
 			if retryErr != nil {
-				eventChan <- Event{Type: EventError, Error: retryErr}
+				eventChan <- llmclient.Event{Type: llmclient.EventError, Error: retryErr}
 				close(eventChan)
 				return
 			}
 			// shouldRetry is not catching the max retries...
 			// TODO: Figure out why
-			if attempts > MaxRetries {
-				logging.Warn("Maximum retry attempts reached for rate limit", "attempts", attempts, "max_retries", MaxRetries)
+			if attempts > llmclient.MaxRetries {
+				logging.Warn("Maximum retry attempts reached for rate limit", "attempts", attempts, "max_retries", llmclient.MaxRetries)
 				retry = false
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d (paused for %d ms)", attempts, MaxRetries, after), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d (paused for %d ms)", attempts, llmclient.MaxRetries, after), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					// context cancelled
 					if ctx.Err() == nil {
-						eventChan <- Event{Type: EventError, Error: ctx.Err()}
+						eventChan <- llmclient.Event{Type: llmclient.EventError, Error: ctx.Err()}
 					}
 					close(eventChan)
 					return
@@ -571,7 +562,7 @@ func (c *copilotClient) Stream(ctx context.Context, messages []message.Message, 
 					continue
 				}
 			}
-			eventChan <- Event{Type: EventError, Error: retryErr}
+			eventChan <- llmclient.Event{Type: llmclient.EventError, Error: retryErr}
 			close(eventChan)
 			return
 		}
@@ -632,8 +623,8 @@ func (c *copilotClient) shouldRetry(attempts int, err error) (bool, int64, error
 		logging.Warn("Copilot API returned 500 error, retrying", "error", err)
 	}
 
-	if attempts > MaxRetries {
-		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", MaxRetries)
+	if attempts > llmclient.MaxRetries {
+		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", llmclient.MaxRetries)
 	}
 
 	retryMs := 0
@@ -669,39 +660,14 @@ func (c *copilotClient) toolCalls(completion openai.ChatCompletion) []message.To
 	return toolCalls
 }
 
-func (c *copilotClient) usage(completion openai.ChatCompletion) TokenUsage {
+func (c *copilotClient) usage(completion openai.ChatCompletion) llmclient.TokenUsage {
 	cachedTokens := completion.Usage.PromptTokensDetails.CachedTokens
 	inputTokens := completion.Usage.PromptTokens - cachedTokens
 
-	return TokenUsage{
+	return llmclient.TokenUsage{
 		InputTokens:         inputTokens,
 		OutputTokens:        completion.Usage.CompletionTokens,
 		CacheCreationTokens: 0, // GitHub Copilot doesn't provide this directly
 		CacheReadTokens:     cachedTokens,
-	}
-}
-
-func WithCopilotReasoningEffort(effort string) CopilotOption {
-	return func(options *copilotOptions) {
-		defaultReasoningEffort := "medium"
-		switch effort {
-		case "low", "medium", "high":
-			defaultReasoningEffort = effort
-		default:
-			logging.Warn("Invalid reasoning effort, using default: medium")
-		}
-		options.reasoningEffort = defaultReasoningEffort
-	}
-}
-
-func WithCopilotExtraHeaders(headers map[string]string) CopilotOption {
-	return func(options *copilotOptions) {
-		options.extraHeaders = headers
-	}
-}
-
-func WithCopilotBearerToken(bearerToken string) CopilotOption {
-	return func(options *copilotOptions) {
-		options.bearerToken = bearerToken
 	}
 }

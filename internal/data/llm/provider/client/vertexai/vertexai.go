@@ -4,18 +4,13 @@ import (
 	"context"
 	"os"
 
+	llmclient "ferryman-agent/internal/data/llm/provider/client"
+	geminiclient "ferryman-agent/internal/data/llm/provider/client/gemini"
 	"ferryman-agent/internal/data/logging"
 	"google.golang.org/genai"
 )
 
-type VertexAIClient Client
-
-func NewVertexAIClient(opts Options) VertexAIClient {
-	geminiOpts := geminiOptions{}
-	for _, o := range opts.GeminiOptions {
-		o(&geminiOpts)
-	}
-
+func NewClient(opts llmclient.Options, optionFns ...geminiclient.Option) llmclient.Client {
 	client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
 		Project:  os.Getenv("VERTEXAI_PROJECT"),
 		Location: os.Getenv("VERTEXAI_LOCATION"),
@@ -26,9 +21,5 @@ func NewVertexAIClient(opts Options) VertexAIClient {
 		return nil
 	}
 
-	return &geminiClient{
-		providerOptions: opts,
-		options:         geminiOpts,
-		client:          client,
-	}
+	return geminiclient.NewClientWithGenAI(opts, client, optionFns...)
 }

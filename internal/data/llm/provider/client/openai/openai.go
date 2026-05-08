@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"ferryman-agent/internal/data/llm/models"
+	llmclient "ferryman-agent/internal/data/llm/provider/client"
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
@@ -17,28 +18,17 @@ import (
 	"github.com/openai/openai-go/shared"
 )
 
-type openaiOptions struct {
-	baseURL         string
-	disableCache    bool
-	reasoningEffort string
-	extraHeaders    map[string]string
-}
-
-type OpenAIOption func(*openaiOptions)
-
 type openaiClient struct {
-	providerOptions Options
-	options         openaiOptions
+	providerOptions llmclient.Options
+	options         options
 	client          openai.Client
 }
 
-type OpenAIClient Client
-
-func NewOpenAIClient(opts Options) OpenAIClient {
-	openaiOpts := openaiOptions{
+func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+	openaiOpts := options{
 		reasoningEffort: "medium",
 	}
-	for _, o := range opts.OpenAIOptions {
+	for _, o := range optionFns {
 		o(&openaiOpts)
 	}
 
@@ -57,6 +47,21 @@ func NewOpenAIClient(opts Options) OpenAIClient {
 	}
 
 	client := openai.NewClient(openaiClientOptions...)
+	return &openaiClient{
+		providerOptions: opts,
+		options:         openaiOpts,
+		client:          client,
+	}
+}
+
+func NewClientWithOpenAI(opts llmclient.Options, client openai.Client, optionFns ...Option) llmclient.Client {
+	openaiOpts := options{
+		reasoningEffort: "medium",
+	}
+	for _, o := range optionFns {
+		o(&openaiOpts)
+	}
+
 	return &openaiClient{
 		providerOptions: opts,
 		options:         openaiOpts,
@@ -184,7 +189,7 @@ func (o *openaiClient) preparedParams(messages []openai.ChatCompletionMessagePar
 	return params
 }
 
-func (o *openaiClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *Response, err error) {
+func (o *openaiClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (response *llmclient.Response, err error) {
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
 	if o.providerOptions.Debug {
 		jsonData, _ := json.Marshal(params)
@@ -204,7 +209,7 @@ func (o *openaiClient) Send(ctx context.Context, messages []message.Message, too
 				return nil, retryErr
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, llmclient.MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					return nil, ctx.Err()
@@ -227,7 +232,7 @@ func (o *openaiClient) Send(ctx context.Context, messages []message.Message, too
 			finishReason = message.FinishReasonToolUse
 		}
 
-		return &Response{
+		return &llmclient.Response{
 			Content:      content,
 			ToolCalls:    toolCalls,
 			Usage:        o.usage(*openaiResponse),
@@ -236,7 +241,7 @@ func (o *openaiClient) Send(ctx context.Context, messages []message.Message, too
 	}
 }
 
-func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
+func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
 	params := o.preparedParams(o.convertMessages(messages), o.convertTools(tools))
 	params.StreamOptions = openai.ChatCompletionStreamOptionsParam{
 		IncludeUsage: openai.Bool(true),
@@ -248,7 +253,7 @@ func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, t
 	}
 
 	attempts := 0
-	eventChan := make(chan Event)
+	eventChan := make(chan llmclient.Event)
 
 	go func() {
 		for {
@@ -268,8 +273,8 @@ func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, t
 
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Content != "" {
-						eventChan <- Event{
-							Type:    EventContentDelta,
+						eventChan <- llmclient.Event{
+							Type:    llmclient.EventContentDelta,
 							Content: choice.Delta.Content,
 						}
 						currentContent += choice.Delta.Content
@@ -288,9 +293,9 @@ func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, t
 					finishReason = message.FinishReasonToolUse
 				}
 
-				eventChan <- Event{
-					Type: EventComplete,
-					Response: &Response{
+				eventChan <- llmclient.Event{
+					Type: llmclient.EventComplete,
+					Response: &llmclient.Response{
 						Content:      currentContent,
 						ToolCalls:    toolCalls,
 						Usage:        o.usage(acc.ChatCompletion),
@@ -304,17 +309,17 @@ func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, t
 			// If there is an error we are going to see if we can retry the call
 			retry, after, retryErr := o.shouldRetry(attempts, err)
 			if retryErr != nil {
-				eventChan <- Event{Type: EventError, Error: retryErr}
+				eventChan <- llmclient.Event{Type: llmclient.EventError, Error: retryErr}
 				close(eventChan)
 				return
 			}
 			if retry {
-				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
+				logging.WarnPersist(fmt.Sprintf("Retrying due to rate limit... attempt %d of %d", attempts, llmclient.MaxRetries), logging.PersistTimeArg, time.Millisecond*time.Duration(after+100))
 				select {
 				case <-ctx.Done():
 					// context cancelled
 					if ctx.Err() == nil {
-						eventChan <- Event{Type: EventError, Error: ctx.Err()}
+						eventChan <- llmclient.Event{Type: llmclient.EventError, Error: ctx.Err()}
 					}
 					close(eventChan)
 					return
@@ -322,7 +327,7 @@ func (o *openaiClient) Stream(ctx context.Context, messages []message.Message, t
 					continue
 				}
 			}
-			eventChan <- Event{Type: EventError, Error: retryErr}
+			eventChan <- llmclient.Event{Type: llmclient.EventError, Error: retryErr}
 			close(eventChan)
 			return
 		}
@@ -341,8 +346,8 @@ func (o *openaiClient) shouldRetry(attempts int, err error) (bool, int64, error)
 		return false, 0, err
 	}
 
-	if attempts > MaxRetries {
-		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", MaxRetries)
+	if attempts > llmclient.MaxRetries {
+		return false, 0, fmt.Errorf("maximum retry attempts reached for rate limit: %d retries", llmclient.MaxRetries)
 	}
 
 	retryMs := 0
@@ -378,53 +383,14 @@ func (o *openaiClient) toolCalls(completion openai.ChatCompletion) []message.Too
 	return toolCalls
 }
 
-func (o *openaiClient) usage(completion openai.ChatCompletion) TokenUsage {
+func (o *openaiClient) usage(completion openai.ChatCompletion) llmclient.TokenUsage {
 	cachedTokens := completion.Usage.PromptTokensDetails.CachedTokens
 	inputTokens := completion.Usage.PromptTokens - cachedTokens
 
-	return TokenUsage{
+	return llmclient.TokenUsage{
 		InputTokens:         inputTokens,
 		OutputTokens:        completion.Usage.CompletionTokens,
 		CacheCreationTokens: 0, // OpenAI doesn't provide this directly
 		CacheReadTokens:     cachedTokens,
-	}
-}
-
-func WithOpenAIBaseURL(baseURL string) OpenAIOption {
-	return func(options *openaiOptions) {
-		options.baseURL = baseURL
-	}
-}
-
-func WithOpenAIDefaultBaseURL(baseURL string) OpenAIOption {
-	return func(options *openaiOptions) {
-		if options.baseURL == "" {
-			options.baseURL = baseURL
-		}
-	}
-}
-
-func WithOpenAIExtraHeaders(headers map[string]string) OpenAIOption {
-	return func(options *openaiOptions) {
-		options.extraHeaders = headers
-	}
-}
-
-func WithOpenAIDisableCache() OpenAIOption {
-	return func(options *openaiOptions) {
-		options.disableCache = true
-	}
-}
-
-func WithReasoningEffort(effort string) OpenAIOption {
-	return func(options *openaiOptions) {
-		defaultReasoningEffort := "medium"
-		switch effort {
-		case "low", "medium", "high":
-			defaultReasoningEffort = effort
-		default:
-			logging.Warn("Invalid reasoning effort, using default: medium")
-		}
-		options.reasoningEffort = defaultReasoningEffort
 	}
 }

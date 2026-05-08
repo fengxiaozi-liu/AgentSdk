@@ -7,27 +7,23 @@ import (
 	"os"
 	"strings"
 
+	llmclient "ferryman-agent/internal/data/llm/provider/client"
+	anthropicclient "ferryman-agent/internal/data/llm/provider/client/anthropic"
 	"ferryman-agent/internal/memory/message"
 	toolcore "ferryman-agent/internal/tools"
 )
 
-type bedrockOptions struct {
-	// Bedrock specific options can be added here
-}
-
-type BedrockOption func(*bedrockOptions)
-
 type bedrockClient struct {
-	providerOptions Options
-	options         bedrockOptions
-	childProvider   Client
+	providerOptions llmclient.Options
+	options         options
+	childProvider   llmclient.Client
 }
 
-type BedrockClient Client
-
-func NewBedrockClient(opts Options) BedrockClient {
-	bedrockOpts := bedrockOptions{}
-	// Apply bedrock specific options if they are added in the future
+func NewClient(opts llmclient.Options, optionFns ...Option) llmclient.Client {
+	bedrockOpts := options{}
+	for _, o := range optionFns {
+		o(&bedrockOpts)
+	}
 
 	// Get AWS region from environment
 	region := os.Getenv("AWS_REGION")
@@ -54,15 +50,10 @@ func NewBedrockClient(opts Options) BedrockClient {
 	// Determine which provider to use based on the model
 	if strings.Contains(string(opts.Model.APIModel), "anthropic") {
 		// Create Anthropic client with Bedrock configuration
-		anthropicOpts := opts
-		anthropicOpts.AnthropicOptions = append(anthropicOpts.AnthropicOptions,
-			WithAnthropicBedrock(true),
-			WithAnthropicDisableCache(),
-		)
 		return &bedrockClient{
 			providerOptions: opts,
 			options:         bedrockOpts,
-			childProvider:   NewAnthropicClient(anthropicOpts),
+			childProvider:   anthropicclient.NewClient(opts, anthropicclient.WithBedrock(true), anthropicclient.WithDisableCache()),
 		}
 	}
 
@@ -75,20 +66,20 @@ func NewBedrockClient(opts Options) BedrockClient {
 	}
 }
 
-func (b *bedrockClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*Response, error) {
+func (b *bedrockClient) Send(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) (*llmclient.Response, error) {
 	if b.childProvider == nil {
 		return nil, errors.New("unsupported model for bedrock provider")
 	}
 	return b.childProvider.Send(ctx, messages, tools)
 }
 
-func (b *bedrockClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan Event {
-	eventChan := make(chan Event)
+func (b *bedrockClient) Stream(ctx context.Context, messages []message.Message, tools []toolcore.BaseTool) <-chan llmclient.Event {
+	eventChan := make(chan llmclient.Event)
 
 	if b.childProvider == nil {
 		go func() {
-			eventChan <- Event{
-				Type:  EventError,
+			eventChan <- llmclient.Event{
+				Type:  llmclient.EventError,
 				Error: errors.New("unsupported model for bedrock provider"),
 			}
 			close(eventChan)
