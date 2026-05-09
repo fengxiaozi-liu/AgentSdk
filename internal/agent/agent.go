@@ -145,7 +145,7 @@ func newFromConfig(cfg AgentConfig) (Service, error) {
 	}, nil
 }
 
-func newAgentRuntime(name string, cfg ModelRef, systemMessage string, tools []toolcore.BaseTool) (llmAgentRuntime, error) {
+func newAgentRuntime(name string, cfg AgentProvider, systemMessage string, tools []toolcore.BaseTool) (llmAgentRuntime, error) {
 	if cfg.ModelID == "" {
 		return llmAgentRuntime{}, fmt.Errorf("%s model_id is required", name)
 	}

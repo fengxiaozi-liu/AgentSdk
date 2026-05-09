@@ -11,14 +11,11 @@ import (
 )
 
 type AgentConfig struct {
-	WorkingDir string
-
-	Memory   MemoryConfig
-	Prompt   PromptConfig
-	Provider ProviderConfig
-
-	Tools []toolcore.BaseTool
-
+	WorkingDir  string
+	Memory      MemoryConfig
+	Prompt      PromptConfig
+	Provider    AgentProviderRouter
+	Tools       []toolcore.BaseTool
 	Debug       bool
 	AutoCompact bool
 }
@@ -34,12 +31,12 @@ type PromptConfig struct {
 	AgentSystemKey string
 }
 
-type ProviderConfig struct {
+type AgentProviderRouter struct {
 	Router        provider.Router
-	AgentProvider ModelRef
+	AgentProvider AgentProvider
 }
 
-type ModelRef struct {
+type AgentProvider struct {
 	Provider models.ModelProvider
 	ModelID  models.ModelID
 }

@@ -2,15 +2,14 @@ package agent
 
 import (
 	"context"
+	"ferryman-agent/internal/prompt"
 
 	mcptools "ferryman-agent/internal/capability/mcp"
 	datadb "ferryman-agent/internal/data/db"
-	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/data/repo"
 	"ferryman-agent/internal/memory/history"
 	"ferryman-agent/internal/memory/message"
 	"ferryman-agent/internal/memory/session"
-	"ferryman-agent/internal/prompt"
 	providersvc "ferryman-agent/internal/provider"
 	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
@@ -56,32 +55,21 @@ func WithMemoryServices(sessions session.Service, messages message.Service, hist
 	}
 }
 
-func WithProviderConfig(configs ...providersvc.ProviderConfig) Option {
+func WithAgentProviders(agentProvider AgentProvider, configs ...providersvc.ProviderConfig) Option {
 	return func(cfg *AgentConfig) error {
 		router, err := providersvc.NewDefaultRouter(configs...)
 		if err != nil {
 			return err
 		}
 		cfg.Provider.Router = router
-		if cfg.Provider.AgentProvider.ModelID == "" || cfg.Provider.AgentProvider.Provider == "" {
-			if model, ok := firstModelRef(configs); ok {
-				cfg.Provider.AgentProvider = model
-			}
-		}
+		cfg.Provider.AgentProvider = agentProvider
 		return nil
 	}
 }
 
-func WithProviderRouter(router providersvc.Router) Option {
+func WithAgentProviderRouter(agentProviderRouter AgentProviderRouter) Option {
 	return func(cfg *AgentConfig) error {
-		cfg.Provider.Router = router
-		return nil
-	}
-}
-
-func WithModel(provider models.ModelProvider, modelID models.ModelID) Option {
-	return func(cfg *AgentConfig) error {
-		cfg.Provider.AgentProvider = ModelRef{Provider: provider, ModelID: modelID}
+		cfg.Provider = agentProviderRouter
 		return nil
 	}
 }
@@ -122,13 +110,6 @@ func WithMCPToolLoader(loader mcptools.MCPToolLoader) Option {
 	}
 }
 
-func WithPrompt(service prompt.Service) Option {
-	return func(cfg *AgentConfig) error {
-		cfg.Prompt.Prompt = service
-		return nil
-	}
-}
-
 func WithSystemValue(value string) Option {
 	return func(cfg *AgentConfig) error {
 		if cfg.Prompt.Prompt == nil {
@@ -140,9 +121,10 @@ func WithSystemValue(value string) Option {
 	}
 }
 
-func WithAgentSystemKey(key string) Option {
+func WithPrompt(config PromptConfig) Option {
 	return func(cfg *AgentConfig) error {
-		cfg.Prompt.AgentSystemKey = key
+		cfg.Prompt.Prompt = config.Prompt
+		cfg.Prompt.AgentSystemKey = config.AgentSystemKey
 		return nil
 	}
 }
@@ -159,18 +141,4 @@ func WithAutoCompact(enabled bool) Option {
 		cfg.AutoCompact = enabled
 		return nil
 	}
-}
-
-func firstModelRef(configs []providersvc.ProviderConfig) (ModelRef, bool) {
-	for _, cfg := range configs {
-		if cfg.Disabled {
-			continue
-		}
-		model, ok := cfg.PrimaryModelConfig()
-		if !ok {
-			continue
-		}
-		return ModelRef{Provider: cfg.Provider, ModelID: model.ModelID}, true
-	}
-	return ModelRef{}, false
 }

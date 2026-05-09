@@ -3,6 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"ferryman-agent/internal/data/llm/models"
+	"ferryman-agent/internal/memory/history"
+	"ferryman-agent/internal/provider"
 	"fmt"
 
 	basetools "ferryman-agent/internal/capability/workspace"
@@ -17,15 +20,18 @@ type agentToolParams struct {
 }
 
 type AgentTool struct {
-	cfg      AgentConfig
-	sessions session.Service
-	messages message.Service
-	prompts  prompt.Service
+	WorkingDir    string
+	sessions      session.Service
+	messages      message.Service
+	prompts       prompt.Service
+	router        provider.Router
+	history       history.Service
+	ModelId       models.ModelID
+	ModelProvider models.ModelProvider
 }
 
-func NewAgentTool(cfg AgentConfig, sessions session.Service, messages message.Service, prompts prompt.Service) toolcore.BaseTool {
+func NewAgentTool(sessions session.Service, messages message.Service, prompts prompt.Service) toolcore.BaseTool {
 	return &AgentTool{
-		cfg:      cfg,
 		sessions: sessions,
 		messages: messages,
 		prompts:  prompts,
@@ -92,14 +98,12 @@ func (b *AgentTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 }
 
 func (b *AgentTool) runTask(ctx context.Context, sessionID string, content string) (message.Message, error) {
-	ws := basetools.Workspace{Root: b.cfg.WorkingDir}
+	ws := basetools.Workspace{Root: b.WorkingDir}
 	runner, err := New(
-		WithWorkingDir(b.cfg.WorkingDir),
-		WithMemoryServices(b.sessions, b.messages, b.cfg.Memory.History),
-		WithPrompt(b.prompts),
-		WithAgentSystemKey(prompt.KeyTask),
-		WithProviderRouter(b.cfg.Provider.Router),
-		WithModel(b.cfg.Provider.AgentProvider.Provider, b.cfg.Provider.AgentProvider.ModelID),
+		WithWorkingDir(b.WorkingDir),
+		WithMemoryServices(b.sessions, b.messages, b.history),
+		WithPrompt(PromptConfig{Prompt: b.prompts, AgentSystemKey: prompt.KeyTask}),
+		WithAgentProviderRouter(AgentProviderRouter{Router: b.router, AgentProvider: AgentProvider{Provider: b.ModelProvider, ModelID: b.ModelId}}),
 		WithTools(
 			basetools.NewGlobTool(ws),
 			basetools.NewGrepTool(ws),
