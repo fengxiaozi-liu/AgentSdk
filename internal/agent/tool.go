@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	basetools "ferryman-agent/internal/capability/workspace"
-	sdkconfig "ferryman-agent/internal/config"
 	"ferryman-agent/internal/memory/message"
 	"ferryman-agent/internal/memory/session"
 	"ferryman-agent/internal/prompt"
@@ -18,13 +17,13 @@ type agentToolParams struct {
 }
 
 type AgentTool struct {
-	cfg      sdkconfig.Config
+	cfg      AgentConfig
 	sessions session.Service
 	messages message.Service
 	prompts  prompt.Service
 }
 
-func NewAgentTool(cfg sdkconfig.Config, sessions session.Service, messages message.Service, prompts prompt.Service) toolcore.BaseTool {
+func NewAgentTool(cfg AgentConfig, sessions session.Service, messages message.Service, prompts prompt.Service) toolcore.BaseTool {
 	return &AgentTool{
 		cfg:      cfg,
 		sessions: sessions,
@@ -61,7 +60,7 @@ func (b *AgentTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		return toolcore.ToolResponse{}, fmt.Errorf("session_id and message_id are required")
 	}
 
-	taskSession, err := b.sessions.CreateTaskSession(ctx, call.ID, sessionID, "NewDefault Agent Session")
+	taskSession, err := b.sessions.CreateTaskSession(ctx, call.ID, sessionID, "New Agent Session")
 	if err != nil {
 		return toolcore.ToolResponse{}, fmt.Errorf("error creating session: %s", err)
 	}
@@ -94,15 +93,13 @@ func (b *AgentTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 
 func (b *AgentTool) runTask(ctx context.Context, sessionID string, content string) (message.Message, error) {
 	ws := basetools.Workspace{Root: b.cfg.WorkingDir}
-	runner, err := NewAgent(
-		b.cfg,
-		b.sessions,
-		b.messages,
-		nil,
-		b.prompts,
-		nil,
-		ws,
-		nil,
+	runner, err := New(
+		WithWorkingDir(b.cfg.WorkingDir),
+		WithMemoryServices(b.sessions, b.messages, b.cfg.Memory.History),
+		WithPrompt(b.prompts),
+		WithAgentSystemKey(prompt.KeyTask),
+		WithProviderRouter(b.cfg.Provider.Router),
+		WithModel(b.cfg.Provider.AgentProvider.Provider, b.cfg.Provider.AgentProvider.ModelID),
 		WithTools(
 			basetools.NewGlobTool(ws),
 			basetools.NewGrepTool(ws),
@@ -110,7 +107,6 @@ func (b *AgentTool) runTask(ctx context.Context, sessionID string, content strin
 			basetools.NewSourcegraphTool(),
 			basetools.NewViewTool(ws),
 		),
-		WithSystemPromptFrom(b.prompts, prompt.KeyTask),
 	)
 	if err != nil {
 		return message.Message{}, err

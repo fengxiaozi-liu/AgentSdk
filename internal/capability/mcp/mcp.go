@@ -7,6 +7,7 @@ import (
 
 	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
+	"github.com/mark3labs/mcp-go/client"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -128,4 +129,15 @@ func runTool(ctx context.Context, c MCPClient, toolName string, input string) (t
 	}
 
 	return toolcore.NewTextResponse(output), nil
+}
+
+func newClient(server MCPServer) (MCPClient, error) {
+	switch server.Type {
+	case MCPStdio:
+		return client.NewStdioMCPClient(server.Command, server.Env, server.Args...)
+	case MCPSse:
+		return client.NewSSEMCPClient(server.URL, client.WithHeaders(server.Headers))
+	default:
+		return nil, fmt.Errorf("invalid mcp type: %s", server.Type)
+	}
 }

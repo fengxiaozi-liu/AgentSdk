@@ -2,31 +2,19 @@ package mcp
 
 import (
 	"context"
-	"fmt"
-
 	"ferryman-agent/internal/data/logging"
 	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
-
-	"github.com/mark3labs/mcp-go/client"
 	mcpsdk "github.com/mark3labs/mcp-go/mcp"
 )
 
 type MCPToolLoader interface {
-	LoadTools(ctx context.Context, permissions permission.Service, workingDir string) ([]toolcore.BaseTool, error)
+	Load(ctx context.Context) (map[string]MCPServer, error)
 }
 
-type DefaultMCPToolLoader struct {
-	servers map[string]MCPServer
-}
-
-func NewDefaultMCPToolLoader(servers map[string]MCPServer) *DefaultMCPToolLoader {
-	return &DefaultMCPToolLoader{servers: servers}
-}
-
-func (l *DefaultMCPToolLoader) LoadTools(ctx context.Context, permissions permission.Service, workingDir string) ([]toolcore.BaseTool, error) {
+func LoadTools(ctx context.Context, servers map[string]MCPServer, permissions permission.Service, workingDir string) ([]toolcore.BaseTool, error) {
 	tools := make([]toolcore.BaseTool, 0)
-	for name, server := range l.servers {
+	for name, server := range servers {
 		c, err := newClient(server)
 		if err != nil {
 			logging.Error("error creating mcp client", "name", name, "error", err)
@@ -36,17 +24,6 @@ func (l *DefaultMCPToolLoader) LoadTools(ctx context.Context, permissions permis
 		tools = append(tools, serverTools...)
 	}
 	return tools, nil
-}
-
-func newClient(server MCPServer) (MCPClient, error) {
-	switch server.Type {
-	case MCPStdio:
-		return client.NewStdioMCPClient(server.Command, server.Env, server.Args...)
-	case MCPSse:
-		return client.NewSSEMCPClient(server.URL, client.WithHeaders(server.Headers))
-	default:
-		return nil, fmt.Errorf("invalid mcp type: %s", server.Type)
-	}
 }
 
 func loadServerTools(ctx context.Context, name string, server MCPServer, permissions permission.Service, workingDir string, c MCPClient) []toolcore.BaseTool {

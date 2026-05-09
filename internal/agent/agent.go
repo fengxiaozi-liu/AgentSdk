@@ -6,14 +6,14 @@ import (
 	"ferryman-agent/internal/data/llm/client"
 	"ferryman-agent/internal/data/llm/models"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
-	mcptools "ferryman-agent/internal/capability/mcp"
-	workspace "ferryman-agent/internal/capability/workspace"
-	sdkconfig "ferryman-agent/internal/config"
+	datadb "ferryman-agent/internal/data/db"
 	"ferryman-agent/internal/data/logging"
+	"ferryman-agent/internal/data/repo"
 	"ferryman-agent/internal/memory/history"
 	"ferryman-agent/internal/memory/message"
 	"ferryman-agent/internal/memory/session"
@@ -60,7 +60,7 @@ type Service interface {
 
 type agent struct {
 	*pubsub.Broker[AgentEvent]
-	config         sdkconfig.Config
+	config         AgentConfig
 	sessions       session.Service //
 	messages       message.Service
 	history        history.Service
@@ -81,125 +81,71 @@ type llmAgentRuntime struct {
 	tools         []toolcore.BaseTool
 }
 
-func MainAgent(cfg sdkconfig.Config, opts ...AgentOption) (Service, error) {
-	agentOpts := applyAgentOptions(opts...)
-	applyConfigAgentOptions(&cfg, agentOpts)
-	runtimeCfg, err := sdkconfig.Use(cfg)
-	if err != nil {
-		return nil, err
+func New(opts ...Option) (Service, error) {
+	cfg := DefaultAgentConfig()
+	for _, opt := range opts {
+		if opt == nil {
+			continue
+		}
+		if err := opt(&cfg); err != nil {
+			return nil, err
+		}
 	}
-	container, err := buildContainer(runtimeCfg)
-	if err != nil {
-		return nil, err
-	}
-	return NewAgent(
-		*runtimeCfg,
-		container.Sessions,
-		container.Messages,
-		container.History,
-		container.Prompt,
-		container.Permissions,
-		container.Workspace,
-		container.ProviderRouter,
-		opts...,
-	)
+	return newFromConfig(cfg)
 }
 
-func NewAgent(
-	cfg sdkconfig.Config,
-	sessions session.Service,
-	messages message.Service,
-	history history.Service,
-	prompts prompt.Service,
-	permissions permission.Service,
-	ws workspace.Workspace,
-	providerRouter providersvc.Router,
-	opts ...AgentOption,
-) (Service, error) {
-	agentOpts := applyAgentOptions(opts...)
-	applyConfigAgentOptions(&cfg, agentOpts)
-	cfg = sdkconfig.WithDefaults(cfg)
-	if agentOpts.enableWorkSpaceTool {
-		agentOpts.tools = append(agentOpts.tools,
-			workspace.NewGlobTool(ws),
-			workspace.NewGrepTool(ws),
-			workspace.NewLsTool(ws),
-			workspace.NewSourcegraphTool(),
-			workspace.NewViewTool(ws),
-			workspace.NewEditTool(ws, permissions, history),
-			workspace.NewWriteTool(ws, permissions, history),
-			workspace.NewPatchTool(ws, permissions, history),
-			workspace.NewBashTool(ws, permissions),
-			workspace.NewFetchTool(ws, permissions),
-		)
-	}
-	mcpTools, err := loadMCPTools(context.Background(), cfg, agentOpts, permissions)
-	if err != nil {
+func newFromConfig(cfg AgentConfig) (Service, error) {
+	if err := normalizeConfig(&cfg); err != nil {
 		return nil, err
 	}
-	agentOpts.tools = append(agentOpts.tools, mcpTools...)
-	if agentOpts.enableAgentTool {
-		agentOpts.tools = append(agentOpts.tools, NewAgentTool(cfg, sessions, messages, prompts))
-	}
-	systemPrompt := ""
-	if systemPrompt, err = resolveSystemPrompt(context.Background(), agentOpts, prompts, agentOpts.promptKey); err != nil {
+	if err := validateConfig(cfg); err != nil {
 		return nil, err
 	}
-	if providerRouter == nil {
-		var err error
-		providerRouter, err = providersvc.NewDefaultRouter(sdkconfig.ProviderConfigs(cfg)...)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	mainRuntime, err := newAgentRuntime("agent", cfg.Agent, systemPrompt, agentOpts.tools)
+	prompts := cfg.Prompt.Prompt
+	systemPrompt, err := resolveSystemPromptKey(context.Background(), prompts, cfg.Prompt.AgentSystemKey)
 	if err != nil {
 		return nil, err
 	}
 
-	var titleAgent *llmAgentRuntime
-	if cfg.TitleAgent.ModelID != "" {
-		titlePrompt, err := resolveSystemPromptKey(context.Background(), prompts, prompt.KeyTitle)
-		if err != nil {
-			return nil, err
-		}
-		runtime, err := newAgentRuntime("titleAgent", cfg.TitleAgent, titlePrompt, make([]toolcore.BaseTool, 0))
-		if err != nil {
-			return nil, err
-		}
-		titleAgent = &runtime
+	mainRuntime, err := newAgentRuntime("agent", cfg.Provider.AgentProvider, systemPrompt, cfg.Tools)
+	if err != nil {
+		return nil, err
 	}
-	var summarizeAgent *llmAgentRuntime
-	if cfg.SummarizeAgent.ModelID != "" {
-		summarizePrompt, err := resolveSystemPromptKey(context.Background(), prompts, prompt.KeySummarizer)
-		if err != nil {
-			return nil, err
-		}
-		runtime, err := newAgentRuntime("summarizeAgent", cfg.SummarizeAgent, summarizePrompt, make([]toolcore.BaseTool, 0))
-		if err != nil {
-			return nil, err
-		}
-		summarizeAgent = &runtime
+
+	titlePrompt, err := resolveSystemPromptKey(context.Background(), prompts, prompt.KeyTitle)
+	if err != nil {
+		return nil, err
+	}
+	titleRuntime, err := newAgentRuntime("titleAgent", cfg.Provider.AgentProvider, titlePrompt, make([]toolcore.BaseTool, 0))
+	if err != nil {
+		return nil, err
+	}
+	summarizePrompt, err := resolveSystemPromptKey(context.Background(), prompts, prompt.KeySummarizer)
+	if err != nil {
+		return nil, err
+	}
+	summarizeRuntime, err := newAgentRuntime("summarizeAgent", cfg.Provider.AgentProvider, summarizePrompt, make([]toolcore.BaseTool, 0))
+	if err != nil {
+		return nil, err
 	}
 	return &agent{
 		Broker:         pubsub.NewBroker[AgentEvent](),
 		config:         cfg,
-		sessions:       sessions,
-		messages:       messages,
-		history:        history,
-		tools:          agentOpts.tools,
+		sessions:       cfg.Memory.Session,
+		messages:       cfg.Memory.Messages,
+		history:        cfg.Memory.History,
+		tools:          cfg.Tools,
 		prompt:         prompts,
-		promptKey:      agentOpts.promptKey,
-		providerRouter: providerRouter,
+		promptKey:      cfg.Prompt.AgentSystemKey,
+		providerRouter: cfg.Provider.Router,
 		mainAgent:      mainRuntime,
-		titleAgent:     titleAgent,
-		summarizeAgent: summarizeAgent,
+		titleAgent:     &titleRuntime,
+		summarizeAgent: &summarizeRuntime,
 		activeRequests: sync.Map{},
 	}, nil
 }
 
-func newAgentRuntime(name string, cfg sdkconfig.AgentModelConfig, systemMessage string, tools []toolcore.BaseTool) (llmAgentRuntime, error) {
+func newAgentRuntime(name string, cfg ModelRef, systemMessage string, tools []toolcore.BaseTool) (llmAgentRuntime, error) {
 	if cfg.ModelID == "" {
 		return llmAgentRuntime{}, fmt.Errorf("%s model_id is required", name)
 	}
@@ -211,60 +157,6 @@ func newAgentRuntime(name string, cfg sdkconfig.AgentModelConfig, systemMessage 
 	}, nil
 }
 
-func applyConfigAgentOptions(cfg *sdkconfig.Config, opts agentOptions) {
-	if opts.database != nil {
-		cfg.Database = *opts.database
-	}
-	if len(opts.providers) > 0 {
-		cfg.Providers = append([]providersvc.ProviderConfig(nil), opts.providers...)
-	}
-	if opts.mcpServers != nil {
-		cfg.MCPServers = opts.mcpServers
-	}
-	if opts.modelID != "" {
-		cfg.Agent.ModelID = opts.modelID
-	}
-	if opts.provider != "" {
-		cfg.Agent.Provider = opts.provider
-	}
-}
-
-func loadMCPTools(ctx context.Context, cfg sdkconfig.Config, opts agentOptions, permissions permission.Service) ([]toolcore.BaseTool, error) {
-	if opts.disableMCP {
-		return nil, nil
-	}
-	if opts.mcpToolLoader != nil {
-		return opts.mcpToolLoader.LoadTools(ctx, permissions, cfg.WorkingDir)
-	}
-	if len(cfg.MCPServers) == 0 {
-		return nil, nil
-	}
-	return mcptools.NewDefaultMCPToolLoader(cfg.MCPServers).LoadTools(ctx, permissions, cfg.WorkingDir)
-}
-
-func resolveSystemPrompt(ctx context.Context, opts agentOptions, fallbackService prompt.Service, fallbackKey string) (string, error) {
-	if opts.systemPromptSet {
-		return opts.systemPrompt, nil
-	}
-	if opts.systemPromptRef != nil {
-		return resolveSystemPromptRef(ctx, opts.systemPromptRef)
-	}
-	return resolveSystemPromptKey(ctx, fallbackService, fallbackKey)
-}
-
-func resolveSystemPromptRef(ctx context.Context, ref *systemPromptRef) (string, error) {
-	if ref == nil {
-		return "", nil
-	}
-	if ref.service == nil {
-		return "", fmt.Errorf("%w: service is required", prompt.ErrPromptConfigInvalid)
-	}
-	if strings.TrimSpace(ref.key) == "" {
-		return "", fmt.Errorf("%w: key is required", prompt.ErrPromptConfigInvalid)
-	}
-	return ref.service.GetSystemPrompt(ctx, ref.key)
-}
-
 func resolveSystemPromptKey(ctx context.Context, service prompt.Service, key string) (string, error) {
 	if strings.TrimSpace(key) == "" {
 		return "", nil
@@ -273,6 +165,64 @@ func resolveSystemPromptKey(ctx context.Context, service prompt.Service, key str
 		return "", fmt.Errorf("%w: prompt service is required for %s", prompt.ErrPromptConfigInvalid, key)
 	}
 	return service.GetSystemPrompt(ctx, key)
+}
+
+func normalizeConfig(cfg *AgentConfig) error {
+	if strings.TrimSpace(cfg.WorkingDir) == "" {
+		if wd, err := os.Getwd(); err == nil {
+			cfg.WorkingDir = wd
+		}
+	}
+	if cfg.Prompt.Prompt == nil {
+		cfg.Prompt.Prompt = prompt.NewDefault()
+	}
+	if strings.TrimSpace(cfg.Prompt.AgentSystemKey) == "" {
+		cfg.Prompt.AgentSystemKey = prompt.KeyCoder
+	}
+	if cfg.Memory.Session == nil && cfg.Memory.Messages == nil && cfg.Memory.History == nil {
+		memory, err := memoryFromDatabase(datadb.DatabaseConfig{Type: datadb.DatabaseSQLite, AutoMigrate: true})
+		if err != nil {
+			return err
+		}
+		cfg.Memory = memory
+	}
+	return nil
+}
+
+func validateConfig(cfg AgentConfig) error {
+	if cfg.Memory.Session == nil || cfg.Memory.Messages == nil || cfg.Memory.History == nil {
+		return fmt.Errorf("memory session, messages, and history services must be configured together")
+	}
+	if cfg.Provider.Router == nil {
+		return fmt.Errorf("provider router is required")
+	}
+	if cfg.Provider.AgentProvider.Provider == "" || cfg.Provider.AgentProvider.ModelID == "" {
+		return fmt.Errorf("agent provider and model are required")
+	}
+	if cfg.Prompt.Prompt == nil {
+		return fmt.Errorf("prompt service is required")
+	}
+	return nil
+}
+
+func memoryFromDatabase(database datadb.DatabaseConfig) (MemoryConfig, error) {
+	dbClient, err := datadb.NewDbClient(database)
+	if err != nil {
+		return MemoryConfig{}, err
+	}
+	if database.AutoMigrate {
+		if err := dbClient.AutoMigrate(&repo.SessionRecord{}, &repo.MessageRecord{}, &repo.HistoryRecord{}); err != nil {
+			return MemoryConfig{}, err
+		}
+	}
+	sessionRepo := repo.NewSessionRepo(dbClient)
+	messageRepo := repo.NewMessageRepo(dbClient)
+	historyRepo := repo.NewHistoryRepo(dbClient)
+	return MemoryConfig{
+		Session:  session.NewService(sessionRepo),
+		Messages: message.NewService(messageRepo),
+		History:  history.NewService(historyRepo),
+	}, nil
 }
 
 func (a *agent) Model() models.Model {
@@ -433,8 +383,7 @@ func (a *agent) Run(ctx context.Context, sessionID string, content string, attac
 }
 
 func (a *agent) processGeneration(ctx context.Context, sessionID, content string, attachmentParts []message.ContentPart) AgentEvent {
-	cfg := sdkconfig.Current()
-	debugEnabled := cfg != nil && cfg.Debug
+	debugEnabled := a.config.Debug
 	// List existing messages; if none, start title generation asynchronously.
 	msgs, err := a.messages.List(ctx, sessionID)
 	if err != nil {
@@ -723,7 +672,7 @@ func (a *agent) Update(profileKey string, modelID models.ModelID) (models.Model,
 	if profileKey != "" && profileKey != "coder" {
 		return models.Model{}, fmt.Errorf("model profile %s not supported", profileKey)
 	}
-	a.config.Agent.ModelID = modelID
+	a.config.Provider.AgentProvider.ModelID = modelID
 	a.mainAgent.modelID = modelID
 
 	return a.Model(), nil

@@ -1,118 +1,176 @@
 package agent
 
 import (
+	"context"
+
 	mcptools "ferryman-agent/internal/capability/mcp"
 	datadb "ferryman-agent/internal/data/db"
 	"ferryman-agent/internal/data/llm/models"
+	"ferryman-agent/internal/data/repo"
+	"ferryman-agent/internal/memory/history"
+	"ferryman-agent/internal/memory/message"
+	"ferryman-agent/internal/memory/session"
 	"ferryman-agent/internal/prompt"
 	providersvc "ferryman-agent/internal/provider"
+	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
 )
 
-type AgentOption func(*agentOptions)
+const PromptKeyDefault = "default"
 
-type agentOptions struct {
-	tools               []toolcore.BaseTool
-	enableAgentTool     bool
-	enableWorkSpaceTool bool
-	mcpServers          map[string]mcptools.MCPServer
-	mcpToolLoader       mcptools.MCPToolLoader
-	disableMCP          bool
-	systemPrompt        string
-	systemPromptSet     bool
-	systemPromptRef     *systemPromptRef
-	promptKey           string
-	providers           []providersvc.ProviderConfig
-	database            *datadb.DatabaseConfig
-	modelID             models.ModelID
-	provider            models.ModelProvider
-}
+type Option func(*AgentConfig) error
 
-type systemPromptRef struct {
-	service prompt.Service
-	key     string
-}
-
-func WithTools(tools ...toolcore.BaseTool) AgentOption {
-	return func(opts *agentOptions) {
-		opts.tools = append(opts.tools, tools...)
+func WithWorkingDir(path string) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.WorkingDir = path
+		return nil
 	}
 }
 
-func WithAgentTool() AgentOption {
-	return func(opts *agentOptions) {
-		opts.enableAgentTool = true
-	}
-}
-
-func WithWorkSpaceTool() AgentOption {
-	return func(opts *agentOptions) {
-		opts.enableWorkSpaceTool = true
-	}
-}
-
-func WithMCPServers(servers map[string]mcptools.MCPServer) AgentOption {
-	return func(opts *agentOptions) {
-		opts.mcpServers = servers
-	}
-}
-
-func WithMCPToolLoader(loader mcptools.MCPToolLoader) AgentOption {
-	return func(opts *agentOptions) {
-		opts.mcpToolLoader = loader
-	}
-}
-
-func DisableMCP() AgentOption {
-	return func(opts *agentOptions) {
-		opts.disableMCP = true
-	}
-}
-
-func WithPromptKey(key string) AgentOption {
-	return func(opts *agentOptions) {
-		opts.promptKey = key
-	}
-}
-
-func WithSystemPrompt(value string) AgentOption {
-	return func(opts *agentOptions) {
-		opts.systemPrompt = value
-		opts.systemPromptSet = true
-	}
-}
-
-func WithSystemPromptFrom(service prompt.Service, key string) AgentOption {
-	return func(opts *agentOptions) {
-		opts.systemPromptRef = &systemPromptRef{service: service, key: key}
-	}
-}
-
-func WithProviders(providers ...providersvc.ProviderConfig) AgentOption {
-	return func(opts *agentOptions) {
-		opts.providers = append(opts.providers, providers...)
-	}
-}
-
-func WithModel(provider models.ModelProvider, modelID models.ModelID) AgentOption {
-	return func(opts *agentOptions) {
-		opts.provider = provider
-		opts.modelID = modelID
-	}
-}
-
-func WithDatabase(database datadb.DatabaseConfig) AgentOption {
-	return func(opts *agentOptions) {
-		opts.database = &database
-	}
-}
-
-func applyAgentOptions(opts ...AgentOption) agentOptions {
-	agentOpts := agentOptions{}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(&agentOpts)
+func WithDatabaseConfig(database datadb.DatabaseConfig) Option {
+	return func(cfg *AgentConfig) error {
+		memory, err := memoryFromDatabase(database)
+		if err != nil {
+			return err
 		}
+		cfg.Memory = memory
+		return nil
 	}
-	return agentOpts
+}
+
+func WithMemoryRepos(sessionRepo repo.SessionRepo, messageRepo repo.MessageRepo, historyRepo repo.HistoryRepo) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.Memory.Session = session.NewService(sessionRepo)
+		cfg.Memory.Messages = message.NewService(messageRepo)
+		cfg.Memory.History = history.NewService(historyRepo)
+		return nil
+	}
+}
+
+func WithMemoryServices(sessions session.Service, messages message.Service, history history.Service) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.Memory.Session = sessions
+		cfg.Memory.Messages = messages
+		cfg.Memory.History = history
+		return nil
+	}
+}
+
+func WithProviderConfig(configs ...providersvc.ProviderConfig) Option {
+	return func(cfg *AgentConfig) error {
+		router, err := providersvc.NewDefaultRouter(configs...)
+		if err != nil {
+			return err
+		}
+		cfg.Provider.Router = router
+		if cfg.Provider.AgentProvider.ModelID == "" || cfg.Provider.AgentProvider.Provider == "" {
+			if model, ok := firstModelRef(configs); ok {
+				cfg.Provider.AgentProvider = model
+			}
+		}
+		return nil
+	}
+}
+
+func WithProviderRouter(router providersvc.Router) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.Provider.Router = router
+		return nil
+	}
+}
+
+func WithModel(provider models.ModelProvider, modelID models.ModelID) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.Provider.AgentProvider = ModelRef{Provider: provider, ModelID: modelID}
+		return nil
+	}
+}
+
+func WithTools(tools ...toolcore.BaseTool) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.Tools = append(cfg.Tools, tools...)
+		return nil
+	}
+}
+
+func WithMCPServers(servers map[string]mcptools.MCPServer) Option {
+	return func(cfg *AgentConfig) error {
+		tools, err := mcptools.LoadTools(context.Background(), servers, permission.NewServiceWithWorkingDir(cfg.WorkingDir), cfg.WorkingDir)
+		if err != nil {
+			return err
+		}
+		cfg.Tools = append(cfg.Tools, tools...)
+		return nil
+	}
+}
+
+func WithMCPToolLoader(loader mcptools.MCPToolLoader) Option {
+	return func(cfg *AgentConfig) error {
+		if loader == nil {
+			return nil
+		}
+		servers, err := loader.Load(context.Background())
+		if err != nil {
+			return err
+		}
+		tools, err := mcptools.LoadTools(context.Background(), servers, permission.NewServiceWithWorkingDir(cfg.WorkingDir), cfg.WorkingDir)
+		if err != nil {
+			return err
+		}
+		cfg.Tools = append(cfg.Tools, tools...)
+		return nil
+	}
+}
+
+func WithPrompt(service prompt.Service) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.Prompt.Prompt = service
+		return nil
+	}
+}
+
+func WithSystemValue(value string) Option {
+	return func(cfg *AgentConfig) error {
+		if cfg.Prompt.Prompt == nil {
+			cfg.Prompt.Prompt = prompt.NewDefault()
+		}
+		cfg.Prompt.Prompt.SetPrompt(PromptKeyDefault, value)
+		cfg.Prompt.AgentSystemKey = PromptKeyDefault
+		return nil
+	}
+}
+
+func WithAgentSystemKey(key string) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.Prompt.AgentSystemKey = key
+		return nil
+	}
+}
+
+func WithDebug(enabled bool) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.Debug = enabled
+		return nil
+	}
+}
+
+func WithAutoCompact(enabled bool) Option {
+	return func(cfg *AgentConfig) error {
+		cfg.AutoCompact = enabled
+		return nil
+	}
+}
+
+func firstModelRef(configs []providersvc.ProviderConfig) (ModelRef, bool) {
+	for _, cfg := range configs {
+		if cfg.Disabled {
+			continue
+		}
+		model, ok := cfg.PrimaryModelConfig()
+		if !ok {
+			continue
+		}
+		return ModelRef{Provider: cfg.Provider, ModelID: model.ModelID}, true
+	}
+	return ModelRef{}, false
 }
