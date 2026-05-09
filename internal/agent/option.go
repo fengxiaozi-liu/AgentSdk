@@ -28,11 +28,21 @@ func WithWorkingDir(path string) Option {
 
 func WithDatabaseConfig(database datadb.DatabaseConfig) Option {
 	return func(cfg *AgentConfig) error {
-		memory, err := memoryFromDatabase(database)
+		dbClient, err := datadb.NewDbClient(database)
 		if err != nil {
 			return err
 		}
-		cfg.Memory = memory
+		if database.AutoMigrate {
+			if err := dbClient.AutoMigrate(&repo.SessionRecord{}, &repo.MessageRecord{}, &repo.HistoryRecord{}); err != nil {
+				return err
+			}
+		}
+		sessionRepo := repo.NewSessionRepo(dbClient)
+		messageRepo := repo.NewMessageRepo(dbClient)
+		historyRepo := repo.NewHistoryRepo(dbClient)
+		cfg.Memory.Session = session.NewService(sessionRepo)
+		cfg.Memory.Messages = message.NewService(messageRepo)
+		cfg.Memory.History = history.NewService(historyRepo)
 		return nil
 	}
 }

@@ -21,6 +21,11 @@ const (
 	KeySummarizer = "summarizer"
 )
 
+const (
+	titlePrompt      = "Generate a concise one-line title for the user's first message. Return only the title text."
+	summarizerPrompt = "Summarize the conversation clearly and concisely, preserving decisions, changed files, open issues, and next steps."
+)
+
 type Service interface {
 	GetSystemPrompt(ctx context.Context, key string) (string, error)
 	Has(key string) bool
@@ -41,8 +46,12 @@ func NewDefault() Service {
 	return &DefaultPrompt{promptStore: newPromptStoreWith(defaultPrompts())}
 }
 
-func New() Service {
-	return newPromptStore()
+func TitlePrompt() string {
+	return titlePrompt
+}
+
+func SummarizerPrompt() string {
+	return summarizerPrompt
 }
 
 func (p *promptStore) GetSystemPrompt(ctx context.Context, key string) (string, error) {
@@ -107,8 +116,8 @@ func newPromptStoreWith(prompts map[string]string) *promptStore {
 func defaultPrompts() map[string]string {
 	return map[string]string{
 		KeyCoder:      "You are an Agent SDK coding assistant. Help the user understand and modify code safely. Prefer reading relevant files before changing them, keep edits scoped, and verify changes with tests when possible.",
-		KeyTitle:      "Generate a concise one-line title for the user's first message. Return only the title text.",
+		KeyTitle:      titlePrompt,
 		KeyTask:       "You are a focused task agent. Complete the delegated task using the available tools and return the result clearly.",
-		KeySummarizer: "Summarize the conversation clearly and concisely, preserving decisions, changed files, open issues, and next steps.",
+		KeySummarizer: summarizerPrompt,
 	}
 }
