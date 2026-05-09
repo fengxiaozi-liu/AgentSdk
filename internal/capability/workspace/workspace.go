@@ -4,11 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-
-	"github.com/google/wire"
 )
-
-var ProviderSet = wire.NewSet(NewWorkspace)
 
 type Workspace struct {
 	Root string

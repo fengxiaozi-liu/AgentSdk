@@ -2,32 +2,68 @@ package agent
 
 import (
 	workspace "ferryman-agent/internal/capability/workspace"
+	sdkconfig "ferryman-agent/internal/config"
 	datadb "ferryman-agent/internal/data/db"
 	"ferryman-agent/internal/data/repo"
 	"ferryman-agent/internal/memory/history"
 	"ferryman-agent/internal/memory/message"
 	"ferryman-agent/internal/memory/session"
 	"ferryman-agent/internal/prompt"
-	providersvc "ferryman-agent/internal/provider"
+	"ferryman-agent/internal/provider"
 	"ferryman-agent/internal/security/permission"
-
-	"github.com/google/wire"
 )
 
-var ProviderSet = wire.NewSet(NewContainer)
-
 type Container struct {
-	DB              *datadb.DbClient
-	Sessions        session.Service
-	Messages        message.Service
-	History         history.Service
-	Permissions     permission.Service
-	Prompt          prompt.Service
-	Workspace       workspace.Workspace
-	ProviderService providersvc.Service
-	SessionRepo     repo.SessionRepo
-	MessageRepo     repo.MessageRepo
-	HistoryRepo     repo.HistoryRepo
+	DB             *datadb.DbClient
+	Sessions       session.Service
+	Messages       message.Service
+	History        history.Service
+	Permissions    permission.Service
+	Prompt         prompt.Service
+	Workspace      workspace.Workspace
+	ProviderRouter provider.Router
+	SessionRepo    repo.SessionRepo
+	MessageRepo    repo.MessageRepo
+	HistoryRepo    repo.HistoryRepo
+}
+
+func buildContainer(cfg *sdkconfig.Config) (*Container, error) {
+	dbClient, err := datadb.NewDbClient(sdkconfig.ProvideDatabaseConfig(cfg))
+	if err != nil {
+		return nil, err
+	}
+	sessionRepo := repo.NewSessionRepo(dbClient)
+	messageRepo := repo.NewMessageRepo(dbClient)
+	historyRepo := repo.NewHistoryRepo(dbClient)
+
+	sessions := session.NewService(sessionRepo)
+	messages := message.NewService(messageRepo)
+	historySvc := history.NewService(historyRepo)
+	workingDir := sdkconfig.WorkingDir(cfg)
+	permissions := permission.NewServiceWithWorkingDir(workingDir)
+	promptSvc, err := prompt.NewService(sdkconfig.Prompt(cfg))
+	if err != nil {
+		return nil, err
+	}
+	ws := workspace.NewWorkspace(workingDir)
+	providerRouter, err := provider.NewDefaultRouter(sdkconfig.ProviderConfigs(*cfg)...)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewContainer(
+		dbClient,
+		sessions,
+		messages,
+		historySvc,
+		permissions,
+		promptSvc,
+		ws,
+		providerRouter,
+		sessionRepo,
+		messageRepo,
+		historyRepo,
+	)
 }
 
 func NewContainer(
@@ -38,7 +74,7 @@ func NewContainer(
 	permissions permission.Service,
 	promptSvc prompt.Service,
 	workspace workspace.Workspace,
-	providerService providersvc.Service,
+	providerRouter provider.Router,
 	sessionRepo repo.SessionRepo,
 	messageRepo repo.MessageRepo,
 	historyRepo repo.HistoryRepo,
@@ -49,16 +85,16 @@ func NewContainer(
 		}
 	}
 	return &Container{
-		DB:              db,
-		Sessions:        sessions,
-		Messages:        messages,
-		History:         history,
-		Permissions:     permissions,
-		Prompt:          promptSvc,
-		Workspace:       workspace,
-		ProviderService: providerService,
-		SessionRepo:     sessionRepo,
-		MessageRepo:     messageRepo,
-		HistoryRepo:     historyRepo,
+		DB:             db,
+		Sessions:       sessions,
+		Messages:       messages,
+		History:        history,
+		Permissions:    permissions,
+		Prompt:         promptSvc,
+		Workspace:      workspace,
+		ProviderRouter: providerRouter,
+		SessionRepo:    sessionRepo,
+		MessageRepo:    messageRepo,
+		HistoryRepo:    historyRepo,
 	}, nil
 }

@@ -7,10 +7,7 @@ import (
 	"ferryman-agent/internal/pubsub"
 
 	"github.com/google/uuid"
-	"github.com/google/wire"
 )
-
-var ProviderSet = wire.NewSet(NewService)
 
 type Session struct {
 	ID               string  `json:"id"`

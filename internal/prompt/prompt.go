@@ -1,17 +1,19 @@
 package prompt
 
 import (
+	"context"
+	"embed"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/google/wire"
 )
 
-var ProviderSet = wire.NewSet(NewService)
+//go:embed prompts.json
+var defaultPromptFS embed.FS
 
 var (
 	ErrPromptKeyNotFound   = errors.New("prompt key not found")
@@ -41,20 +43,27 @@ const (
 )
 
 type Service interface {
-	GetSystemPrompt(key string) (string, error)
+	GetSystemPrompt(ctx context.Context, key string) (string, error)
 	Has(key string) bool
 	Keys() []string
 	SetPrompt(key, value string)
 	SetPrompts(prompts map[string]string)
 }
 
-type PromptService struct {
+type DefaultPromptService struct {
 	prompts map[string]string
 }
 
 func NewService(cfg PromptConfig) (Service, error) {
-	promptSvc := New()
+	promptSvc := NewDefault()
 	switch cfg.Type {
+	case "":
+		prompts, err := loadDefaultPrompts()
+		if err != nil {
+			return nil, err
+		}
+		promptSvc.SetPrompts(prompts)
+		return promptSvc, nil
 	case PromptConfigValue:
 		if strings.TrimSpace(cfg.Key) != "" {
 			promptSvc.SetPrompt(cfg.Key, cfg.Value)
@@ -74,11 +83,13 @@ func NewService(cfg PromptConfig) (Service, error) {
 	return promptSvc, nil
 }
 
-func New() Service {
-	return &PromptService{prompts: make(map[string]string)}
+func NewDefault() Service {
+	return &DefaultPromptService{prompts: make(map[string]string)}
 }
 
-func (p *PromptService) GetSystemPrompt(key string) (string, error) {
+func (p *DefaultPromptService) GetSystemPrompt(ctx context.Context, key string) (string, error) {
+	_ = ctx
+
 	if p == nil {
 		return "", fmt.Errorf("%w: %s", ErrPromptKeyNotFound, key)
 	}
@@ -89,7 +100,7 @@ func (p *PromptService) GetSystemPrompt(key string) (string, error) {
 	return prompt, nil
 }
 
-func (p *PromptService) Has(key string) bool {
+func (p *DefaultPromptService) Has(key string) bool {
 	if p == nil {
 		return false
 	}
@@ -97,7 +108,7 @@ func (p *PromptService) Has(key string) bool {
 	return ok
 }
 
-func (p *PromptService) Keys() []string {
+func (p *DefaultPromptService) Keys() []string {
 	if p == nil {
 		return nil
 	}
@@ -109,7 +120,7 @@ func (p *PromptService) Keys() []string {
 	return keys
 }
 
-func (p *PromptService) SetPrompt(key, value string) {
+func (p *DefaultPromptService) SetPrompt(key, value string) {
 	if p == nil {
 		return
 	}
@@ -119,7 +130,7 @@ func (p *PromptService) SetPrompt(key, value string) {
 	p.prompts[key] = value
 }
 
-func (p *PromptService) SetPrompts(prompts map[string]string) {
+func (p *DefaultPromptService) SetPrompts(prompts map[string]string) {
 	for key, value := range prompts {
 		p.SetPrompt(key, value)
 	}
@@ -130,7 +141,7 @@ func LoadPath(path string) (Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &PromptService{prompts: prompts}, nil
+	return &DefaultPromptService{prompts: prompts}, nil
 }
 
 func loadPrompts(path string) (map[string]string, error) {
@@ -153,6 +164,8 @@ func loadPromptFile(path string) (map[string]string, error) {
 		return nil, err
 	}
 	switch strings.ToLower(filepath.Ext(path)) {
+	case ".json":
+		return loadPromptJSON(content)
 	case ".md", ".markdown":
 		key := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		return map[string]string{key: string(content)}, nil
@@ -172,21 +185,48 @@ func loadPromptDir(path string) (map[string]string, error) {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
-		if ext != ".md" && ext != ".markdown" {
+		if ext != ".md" && ext != ".markdown" && ext != ".json" {
 			continue
 		}
-		key := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
 		content, err := os.ReadFile(filepath.Join(path, entry.Name()))
 		if err != nil {
 			return nil, err
 		}
-		if _, exists := prompts[key]; exists {
-			return nil, fmt.Errorf("%w: duplicate prompt key %s", ErrPromptConfigInvalid, key)
+		filePrompts := map[string]string{}
+		if ext == ".json" {
+			filePrompts, err = loadPromptJSON(content)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			key := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+			filePrompts[key] = string(content)
 		}
-		prompts[key] = string(content)
+		for key, value := range filePrompts {
+			if _, exists := prompts[key]; exists {
+				return nil, fmt.Errorf("%w: duplicate prompt key %s", ErrPromptConfigInvalid, key)
+			}
+			prompts[key] = value
+		}
 	}
 	if len(prompts) == 0 {
-		return nil, fmt.Errorf("%w: no markdown prompts found in %s", ErrPromptConfigInvalid, path)
+		return nil, fmt.Errorf("%w: no prompts found in %s", ErrPromptConfigInvalid, path)
+	}
+	return prompts, nil
+}
+
+func loadDefaultPrompts() (map[string]string, error) {
+	content, err := defaultPromptFS.ReadFile("prompts.json")
+	if err != nil {
+		return nil, err
+	}
+	return loadPromptJSON(content)
+}
+
+func loadPromptJSON(content []byte) (map[string]string, error) {
+	prompts := map[string]string{}
+	if err := json.Unmarshal(content, &prompts); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrPromptConfigInvalid, err)
 	}
 	return prompts, nil
 }

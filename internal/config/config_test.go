@@ -1,17 +1,17 @@
 package config
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"ferryman-agent/internal/data/llm/models"
+	"ferryman-agent/internal/provider"
 )
 
 func TestValidateProviderConfigRequiresModels(t *testing.T) {
 	cfg := Config{
-		Provider: ProviderConfig{
-			Provider: models.ProviderOpenAI,
+		Providers: []provider.ProviderConfig{
+			{Provider: models.ProviderOpenAI},
 		},
 	}
 
@@ -19,38 +19,19 @@ func TestValidateProviderConfigRequiresModels(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
-	if !strings.Contains(err.Error(), "provider models is required") {
+	if !strings.Contains(err.Error(), "providers[0] models is required") {
 		t.Fatalf("expected models required error, got %v", err)
-	}
-}
-
-func TestValidateProviderConfigRejectsLegacyModelConfig(t *testing.T) {
-	var cfg Config
-	err := json.Unmarshal([]byte(`{
-		"provider": {
-			"provider": "openai",
-			"modelConfig": {"model_id": "o4-mini"}
-		}
-	}`), &cfg)
-	if err != nil {
-		t.Fatalf("unmarshal config: %v", err)
-	}
-
-	err = Validate(cfg)
-	if err == nil {
-		t.Fatal("expected validation error")
-	}
-	if !strings.Contains(err.Error(), "modelConfig is not supported; use models") {
-		t.Fatalf("expected legacy modelConfig error, got %v", err)
 	}
 }
 
 func TestValidateProviderConfigAcceptsModels(t *testing.T) {
 	cfg := Config{
-		Provider: ProviderConfig{
-			Provider: models.ProviderOpenAI,
-			Models: []ModelConfig{
-				{ModelId: "o4-mini"},
+		Providers: []provider.ProviderConfig{
+			{
+				Provider: models.ProviderOpenAI,
+				Models: []provider.ModelConfig{
+					{ModelID: "o4-mini"},
+				},
 			},
 		},
 	}
@@ -68,7 +49,7 @@ func TestApplyModelConfigOverridesModel(t *testing.T) {
 		ReasoningEffort: "low",
 	}
 
-	model = ApplyModelConfig(model, ModelConfig{
+	model = provider.ApplyModelConfig(model, provider.ModelConfig{
 		APIModel:        "api-model",
 		MaxTokens:       8192,
 		ReasoningEffort: "high",

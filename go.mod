@@ -12,7 +12,6 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-logfmt/logfmt v0.6.1
 	github.com/google/uuid v1.6.0
-	github.com/google/wire v0.7.0
 	github.com/mark3labs/mcp-go v0.17.0
 	github.com/openai/openai-go v0.1.0-beta.2
 	google.golang.org/genai v1.3.0

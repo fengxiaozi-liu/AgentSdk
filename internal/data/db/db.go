@@ -8,13 +8,10 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
-	"github.com/google/wire"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
-
-var ProviderSet = wire.NewSet(NewDbClient)
 
 type DatabaseType string
 

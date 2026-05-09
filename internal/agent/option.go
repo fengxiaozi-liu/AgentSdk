@@ -1,8 +1,10 @@
 package agent
 
 import (
+	mcptools "ferryman-agent/internal/capability/mcp"
 	datadb "ferryman-agent/internal/data/db"
 	"ferryman-agent/internal/data/llm/models"
+	"ferryman-agent/internal/prompt"
 	providersvc "ferryman-agent/internal/provider"
 	toolcore "ferryman-agent/internal/tools"
 )
@@ -12,13 +14,23 @@ type AgentOption func(*agentOptions)
 type agentOptions struct {
 	tools               []toolcore.BaseTool
 	enableAgentTool     bool
-	enableMcpTool       bool
 	enableWorkSpaceTool bool
+	mcpServers          map[string]mcptools.MCPServer
+	mcpToolLoader       mcptools.MCPToolLoader
+	disableMCP          bool
+	systemPrompt        string
+	systemPromptSet     bool
+	systemPromptRef     *systemPromptRef
 	promptKey           string
-	providers           []providersvc.ProviderRegister
+	providers           []providersvc.ProviderConfig
 	database            *datadb.DatabaseConfig
 	modelID             models.ModelID
 	provider            models.ModelProvider
+}
+
+type systemPromptRef struct {
+	service prompt.Service
+	key     string
 }
 
 func WithTools(tools ...toolcore.BaseTool) AgentOption {
@@ -39,14 +51,22 @@ func WithWorkSpaceTool() AgentOption {
 	}
 }
 
-func WithMcpTool() AgentOption {
+func WithMCPServers(servers map[string]mcptools.MCPServer) AgentOption {
 	return func(opts *agentOptions) {
-		opts.enableMcpTool = true
+		opts.mcpServers = servers
 	}
 }
 
-func WithMCPTool() AgentOption {
-	return WithMcpTool()
+func WithMCPToolLoader(loader mcptools.MCPToolLoader) AgentOption {
+	return func(opts *agentOptions) {
+		opts.mcpToolLoader = loader
+	}
+}
+
+func DisableMCP() AgentOption {
+	return func(opts *agentOptions) {
+		opts.disableMCP = true
+	}
 }
 
 func WithPromptKey(key string) AgentOption {
@@ -55,7 +75,20 @@ func WithPromptKey(key string) AgentOption {
 	}
 }
 
-func WithProviders(providers ...providersvc.ProviderRegister) AgentOption {
+func WithSystemPrompt(value string) AgentOption {
+	return func(opts *agentOptions) {
+		opts.systemPrompt = value
+		opts.systemPromptSet = true
+	}
+}
+
+func WithSystemPromptFrom(service prompt.Service, key string) AgentOption {
+	return func(opts *agentOptions) {
+		opts.systemPromptRef = &systemPromptRef{service: service, key: key}
+	}
+}
+
+func WithProviders(providers ...providersvc.ProviderConfig) AgentOption {
 	return func(opts *agentOptions) {
 		opts.providers = append(opts.providers, providers...)
 	}

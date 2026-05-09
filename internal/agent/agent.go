@@ -60,18 +60,18 @@ type Service interface {
 
 type agent struct {
 	*pubsub.Broker[AgentEvent]
-	config          sdkconfig.Config
-	sessions        session.Service //
-	messages        message.Service
-	history         history.Service
-	tools           []toolcore.BaseTool
-	prompt          prompt.Service
-	promptKey       string
-	providerService providersvc.Service
-	mainAgent       llmAgentRuntime
-	titleAgent      *llmAgentRuntime
-	summarizeAgent  *llmAgentRuntime
-	activeRequests  sync.Map
+	config         sdkconfig.Config
+	sessions       session.Service //
+	messages       message.Service
+	history        history.Service
+	tools          []toolcore.BaseTool
+	prompt         prompt.Service
+	promptKey      string
+	providerRouter providersvc.Router
+	mainAgent      llmAgentRuntime
+	titleAgent     *llmAgentRuntime
+	summarizeAgent *llmAgentRuntime
+	activeRequests sync.Map
 }
 
 type llmAgentRuntime struct {
@@ -88,7 +88,7 @@ func MainAgent(cfg sdkconfig.Config, opts ...AgentOption) (Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	container, err := wireContainer(runtimeCfg)
+	container, err := buildContainer(runtimeCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func MainAgent(cfg sdkconfig.Config, opts ...AgentOption) (Service, error) {
 		container.Prompt,
 		container.Permissions,
 		container.Workspace,
-		container.ProviderService,
+		container.ProviderRouter,
 		opts...,
 	)
 }
@@ -113,7 +113,7 @@ func NewAgent(
 	prompts prompt.Service,
 	permissions permission.Service,
 	ws workspace.Workspace,
-	providerService providersvc.Service,
+	providerRouter providersvc.Router,
 	opts ...AgentOption,
 ) (Service, error) {
 	agentOpts := applyAgentOptions(opts...)
@@ -133,19 +133,21 @@ func NewAgent(
 			workspace.NewFetchTool(ws, permissions),
 		)
 	}
-	if agentOpts.enableMcpTool {
-		agentOpts.tools = append(agentOpts.tools, mcptools.GetMcpTools(context.Background(), permissions)...)
+	mcpTools, err := loadMCPTools(context.Background(), cfg, agentOpts, permissions)
+	if err != nil {
+		return nil, err
 	}
+	agentOpts.tools = append(agentOpts.tools, mcpTools...)
 	if agentOpts.enableAgentTool {
 		agentOpts.tools = append(agentOpts.tools, NewAgentTool(cfg, sessions, messages, prompts))
 	}
 	systemPrompt := ""
-	if prompts != nil && strings.TrimSpace(agentOpts.promptKey) != "" {
-		systemPrompt, _ = prompts.GetSystemPrompt(agentOpts.promptKey)
+	if systemPrompt, err = resolveSystemPrompt(context.Background(), agentOpts, prompts, agentOpts.promptKey); err != nil {
+		return nil, err
 	}
-	if providerService == nil {
+	if providerRouter == nil {
 		var err error
-		providerService, err = providersvc.NewService(sdkconfig.ProviderConfigs(cfg)...)
+		providerRouter, err = providersvc.NewDefaultRouter(sdkconfig.ProviderConfigs(cfg)...)
 		if err != nil {
 			return nil, err
 		}
@@ -158,9 +160,9 @@ func NewAgent(
 
 	var titleAgent *llmAgentRuntime
 	if cfg.TitleAgent.ModelID != "" {
-		titlePrompt := ""
-		if prompts != nil {
-			titlePrompt, _ = prompts.GetSystemPrompt(prompt.KeyTitle)
+		titlePrompt, err := resolveSystemPromptKey(context.Background(), prompts, prompt.KeyTitle)
+		if err != nil {
+			return nil, err
 		}
 		runtime, err := newAgentRuntime("titleAgent", cfg.TitleAgent, titlePrompt, make([]toolcore.BaseTool, 0))
 		if err != nil {
@@ -170,9 +172,9 @@ func NewAgent(
 	}
 	var summarizeAgent *llmAgentRuntime
 	if cfg.SummarizeAgent.ModelID != "" {
-		summarizePrompt := ""
-		if prompts != nil {
-			summarizePrompt, _ = prompts.GetSystemPrompt(prompt.KeySummarizer)
+		summarizePrompt, err := resolveSystemPromptKey(context.Background(), prompts, prompt.KeySummarizer)
+		if err != nil {
+			return nil, err
 		}
 		runtime, err := newAgentRuntime("summarizeAgent", cfg.SummarizeAgent, summarizePrompt, make([]toolcore.BaseTool, 0))
 		if err != nil {
@@ -181,19 +183,19 @@ func NewAgent(
 		summarizeAgent = &runtime
 	}
 	return &agent{
-		Broker:          pubsub.NewBroker[AgentEvent](),
-		config:          cfg,
-		sessions:        sessions,
-		messages:        messages,
-		history:         history,
-		tools:           agentOpts.tools,
-		prompt:          prompts,
-		promptKey:       agentOpts.promptKey,
-		providerService: providerService,
-		mainAgent:       mainRuntime,
-		titleAgent:      titleAgent,
-		summarizeAgent:  summarizeAgent,
-		activeRequests:  sync.Map{},
+		Broker:         pubsub.NewBroker[AgentEvent](),
+		config:         cfg,
+		sessions:       sessions,
+		messages:       messages,
+		history:        history,
+		tools:          agentOpts.tools,
+		prompt:         prompts,
+		promptKey:      agentOpts.promptKey,
+		providerRouter: providerRouter,
+		mainAgent:      mainRuntime,
+		titleAgent:     titleAgent,
+		summarizeAgent: summarizeAgent,
+		activeRequests: sync.Map{},
 	}, nil
 }
 
@@ -214,7 +216,10 @@ func applyConfigAgentOptions(cfg *sdkconfig.Config, opts agentOptions) {
 		cfg.Database = *opts.database
 	}
 	if len(opts.providers) > 0 {
-		cfg.Providers = append([]providersvc.ProviderRegister(nil), opts.providers...)
+		cfg.Providers = append([]providersvc.ProviderConfig(nil), opts.providers...)
+	}
+	if opts.mcpServers != nil {
+		cfg.MCPServers = opts.mcpServers
 	}
 	if opts.modelID != "" {
 		cfg.Agent.ModelID = opts.modelID
@@ -222,6 +227,52 @@ func applyConfigAgentOptions(cfg *sdkconfig.Config, opts agentOptions) {
 	if opts.provider != "" {
 		cfg.Agent.Provider = opts.provider
 	}
+}
+
+func loadMCPTools(ctx context.Context, cfg sdkconfig.Config, opts agentOptions, permissions permission.Service) ([]toolcore.BaseTool, error) {
+	if opts.disableMCP {
+		return nil, nil
+	}
+	if opts.mcpToolLoader != nil {
+		return opts.mcpToolLoader.LoadTools(ctx, permissions, cfg.WorkingDir)
+	}
+	if len(cfg.MCPServers) == 0 {
+		return nil, nil
+	}
+	return mcptools.NewDefaultMCPToolLoader(cfg.MCPServers).LoadTools(ctx, permissions, cfg.WorkingDir)
+}
+
+func resolveSystemPrompt(ctx context.Context, opts agentOptions, fallbackService prompt.Service, fallbackKey string) (string, error) {
+	if opts.systemPromptSet {
+		return opts.systemPrompt, nil
+	}
+	if opts.systemPromptRef != nil {
+		return resolveSystemPromptRef(ctx, opts.systemPromptRef)
+	}
+	return resolveSystemPromptKey(ctx, fallbackService, fallbackKey)
+}
+
+func resolveSystemPromptRef(ctx context.Context, ref *systemPromptRef) (string, error) {
+	if ref == nil {
+		return "", nil
+	}
+	if ref.service == nil {
+		return "", fmt.Errorf("%w: service is required", prompt.ErrPromptConfigInvalid)
+	}
+	if strings.TrimSpace(ref.key) == "" {
+		return "", fmt.Errorf("%w: key is required", prompt.ErrPromptConfigInvalid)
+	}
+	return ref.service.GetSystemPrompt(ctx, ref.key)
+}
+
+func resolveSystemPromptKey(ctx context.Context, service prompt.Service, key string) (string, error) {
+	if strings.TrimSpace(key) == "" {
+		return "", nil
+	}
+	if service == nil {
+		return "", fmt.Errorf("%w: prompt service is required for %s", prompt.ErrPromptConfigInvalid, key)
+	}
+	return service.GetSystemPrompt(ctx, key)
 }
 
 func (a *agent) Model() models.Model {
@@ -241,6 +292,32 @@ func (a *agent) providerRequest(runtime llmAgentRuntime, messages []message.Mess
 		Messages:      messages,
 		Tools:         runtime.tools,
 	}
+}
+
+func (a *agent) routeProvider(ctx context.Context, runtime llmAgentRuntime) (providersvc.ProviderClient, error) {
+	return a.providerRouter.Route(ctx, providersvc.RouteRequest{
+		Provider: runtime.provider,
+		ModelID:  runtime.modelID,
+	})
+}
+
+func (a *agent) sendMessages(ctx context.Context, runtime llmAgentRuntime, messages []message.Message) (*client.Response, error) {
+	target, err := a.routeProvider(ctx, runtime)
+	if err != nil {
+		return nil, err
+	}
+	return target.SendMessages(ctx, a.providerRequest(runtime, messages))
+}
+
+func (a *agent) streamResponse(ctx context.Context, runtime llmAgentRuntime, messages []message.Message) <-chan client.Event {
+	target, err := a.routeProvider(ctx, runtime)
+	if err != nil {
+		ch := make(chan client.Event, 1)
+		ch <- client.Event{Type: client.EventError, Error: err}
+		close(ch)
+		return ch
+	}
+	return target.StreamResponse(ctx, a.providerRequest(runtime, messages))
 }
 
 func (a *agent) Cancel(sessionID string) {
@@ -293,15 +370,12 @@ func (a *agent) generateTitle(ctx context.Context, sessionID string, content str
 	}
 	ctx = context.WithValue(ctx, toolcore.SessionIDContextKey, sessionID)
 	parts := []message.ContentPart{message.TextContent{Text: content}}
-	response, err := a.providerService.SendMessages(
-		ctx,
-		a.providerRequest(*a.titleAgent, []message.Message{
-			{
-				Role:  message.User,
-				Parts: parts,
-			},
-		}),
-	)
+	response, err := a.sendMessages(ctx, *a.titleAgent, []message.Message{
+		{
+			Role:  message.User,
+			Parts: parts,
+		},
+	})
 	if err != nil {
 		return err
 	}
@@ -450,7 +524,7 @@ func (a *agent) createUserMessage(ctx context.Context, sessionID, content string
 
 func (a *agent) streamAndHandleEvents(ctx context.Context, sessionID string, msgHistory []message.Message) (message.Message, *message.Message, error) {
 	ctx = context.WithValue(ctx, toolcore.SessionIDContextKey, sessionID)
-	eventChan := a.providerService.StreamResponse(ctx, a.providerRequest(a.mainAgent, msgHistory))
+	eventChan := a.streamResponse(ctx, a.mainAgent, msgHistory)
 
 	assistantMsg, err := a.messages.Create(ctx, sessionID, message.CreateMessageParams{
 		Role:  message.Assistant,
@@ -709,8 +783,16 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 		}
 		a.Publish(pubsub.CreatedEvent, event)
 
-		// Add a system message to guide the summarization
-		summarizePrompt := "Provide a detailed but concise summary of our conversation above. Focus on information that would be helpful for continuing the conversation, including what we did, what we're doing, which files we're working on, and what we're going to do next."
+		summarizePrompt := a.summarizeAgent.systemMessage
+		if strings.TrimSpace(summarizePrompt) == "" {
+			event = AgentEvent{
+				Type:  AgentEventTypeError,
+				Error: fmt.Errorf("summarize prompt is empty"),
+				Done:  true,
+			}
+			a.Publish(pubsub.CreatedEvent, event)
+			return
+		}
 
 		// Create a new message with the summarize prompt
 		promptMsg := message.Message{
@@ -729,7 +811,7 @@ func (a *agent) Summarize(ctx context.Context, sessionID string) error {
 		a.Publish(pubsub.CreatedEvent, event)
 
 		// Send the messages to the summarize provider
-		response, err := a.providerService.SendMessages(summarizeCtx, a.providerRequest(*a.summarizeAgent, msgsWithPrompt))
+		response, err := a.sendMessages(summarizeCtx, *a.summarizeAgent, msgsWithPrompt)
 		if err != nil {
 			event = AgentEvent{
 				Type:  AgentEventTypeError,

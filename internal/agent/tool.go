@@ -61,7 +61,7 @@ func (b *AgentTool) Run(ctx context.Context, call toolcore.ToolCall) (toolcore.T
 		return toolcore.ToolResponse{}, fmt.Errorf("session_id and message_id are required")
 	}
 
-	taskSession, err := b.sessions.CreateTaskSession(ctx, call.ID, sessionID, "New Agent Session")
+	taskSession, err := b.sessions.CreateTaskSession(ctx, call.ID, sessionID, "NewDefault Agent Session")
 	if err != nil {
 		return toolcore.ToolResponse{}, fmt.Errorf("error creating session: %s", err)
 	}
@@ -110,7 +110,7 @@ func (b *AgentTool) runTask(ctx context.Context, sessionID string, content strin
 			basetools.NewSourcegraphTool(),
 			basetools.NewViewTool(ws),
 		),
-		WithPromptKey(prompt.KeyTask),
+		WithSystemPromptFrom(b.prompts, prompt.KeyTask),
 	)
 	if err != nil {
 		return message.Message{}, err
