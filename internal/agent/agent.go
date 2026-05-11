@@ -102,8 +102,8 @@ func New(opts ...Option) (Service, error) {
 		prompt:         prompts,
 		systemPrompt:   systemPrompt,
 		providerRouter: cfg.Provider.Router,
-		provider:       cfg.Provider.AgentProvider.Provider,
-		modelID:        cfg.Provider.AgentProvider.ModelID,
+		provider:       cfg.Provider.DefaultModel.Provider,
+		modelID:        cfg.Provider.DefaultModel.ModelID,
 		activeRequests: sync.Map{},
 	}, nil
 }
@@ -558,7 +558,7 @@ func (a *agent) Update(profileKey string, modelID models.ModelID) (models.Model,
 	if profileKey != "" && profileKey != "coder" {
 		return models.Model{}, fmt.Errorf("model profile %s not supported", profileKey)
 	}
-	a.config.Provider.AgentProvider.ModelID = modelID
+	a.config.Provider.DefaultModel.ModelID = modelID
 	a.modelID = modelID
 
 	return a.Model(), nil

@@ -25,7 +25,7 @@ Default prompts live in `internal/prompt/prompts.json`. A host can provide a JSO
 
 ## Model Config
 
-Provider configuration is provider-scoped and each provider declares a `models` list. `ProviderConfig`, `ModelConfig`, and `DatabaseConfig` are defined in `internal/config/config.go`.
+Provider configuration is provider-scoped and each provider declares a `models` list. `ProviderConfig` and `ModelConfig` are defined in `internal/agent/config.go`; database configuration is defined in `internal/data/db`.
 
 ```json
 {

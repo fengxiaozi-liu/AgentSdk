@@ -103,7 +103,7 @@ func (b *AgentTool) runTask(ctx context.Context, sessionID string, content strin
 		WithWorkingDir(b.WorkingDir),
 		WithMemoryServices(b.sessions, b.messages, b.history),
 		WithPrompt(PromptConfig{Prompt: b.prompts, AgentSystemKey: prompt.KeyTask}),
-		WithAgentProviderRouter(AgentProviderRouter{Router: b.router, AgentProvider: AgentProvider{Provider: b.ModelProvider, ModelID: b.ModelId}}),
+		WithProviderRouting(ProviderRoutingConfig{Router: b.router, DefaultModel: ModelTarget{Provider: b.ModelProvider, ModelID: b.ModelId}}),
 		WithTools(
 			basetools.NewGlobTool(ws),
 			basetools.NewGrepTool(ws),

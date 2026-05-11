@@ -36,56 +36,40 @@ func (f *fakeClient) Stream(ctx context.Context, request llmclient.Request) <-ch
 	return ch
 }
 
-func TestNewDefaultRouterRejectsInvalidConfigs(t *testing.T) {
-	_, err := NewDefaultRouter(ProviderConfig{})
-	if !errors.Is(err, ErrProviderNotConfigured) {
-		t.Fatalf("expected ErrProviderNotConfigured, got %v", err)
-	}
-
-	_, err = NewDefaultRouter(ProviderConfig{Provider: models.ProviderMock})
-	if !errors.Is(err, ErrModelNotConfigured) {
-		t.Fatalf("expected ErrModelNotConfigured, got %v", err)
-	}
-
-	_, err = NewDefaultRouter(ProviderConfig{
-		Provider: models.ProviderMock,
-		Models:   []ModelConfig{{}},
-	})
-	if !errors.Is(err, ErrModelNotConfigured) {
-		t.Fatalf("expected ErrModelNotConfigured for empty model id, got %v", err)
-	}
-}
-
-func TestNewDefaultRouterSkipsDisabledConfig(t *testing.T) {
-	router, err := NewDefaultRouter(ProviderConfig{
-		Provider: models.ProviderMock,
-		Disabled: true,
-	})
-	if err != nil {
-		t.Fatalf("new router: %v", err)
-	}
-	_, err = router.Route(context.Background(), RouteRequest{Provider: models.ProviderMock, ModelID: "model-a"})
+func TestNewDefaultRouterWithEmptyTargetsDoesNotRoute(t *testing.T) {
+	router := NewDefaultRouter(nil)
+	_, err := router.Route(context.Background(), RouteRequest{Provider: models.ProviderMock, ModelID: "model-a"})
 	if !errors.Is(err, ErrProviderTargetNotFound) {
 		t.Fatalf("expected ErrProviderTargetNotFound, got %v", err)
 	}
 }
 
-func TestNewDefaultRouterRejectsDuplicateTarget(t *testing.T) {
-	_, err := NewDefaultRouter(ProviderConfig{
-		Provider: models.ProviderMock,
-		Models: []ModelConfig{
-			{ModelID: "model-a"},
-			{ModelID: "model-a"},
+func TestNewDefaultRouterWithExplicitEmptyTargetsDoesNotRoute(t *testing.T) {
+	router := NewDefaultRouter(map[models.ModelProvider]map[models.ModelID]ProviderClient{})
+	_, err := router.Route(context.Background(), RouteRequest{Provider: models.ProviderMock, ModelID: "model-a"})
+	if !errors.Is(err, ErrProviderTargetNotFound) {
+		t.Fatalf("expected ErrProviderTargetNotFound, got %v", err)
+	}
+}
+
+func TestNewDefaultRouterUsesRegisteredTarget(t *testing.T) {
+	router := NewDefaultRouter(map[models.ModelProvider]map[models.ModelID]ProviderClient{
+		models.ProviderMock: {
+			"model-a": {Provider: models.ProviderMock, Model: models.Model{ID: "model-a"}, Client: &fakeClient{content: "mock"}},
 		},
 	})
-	if !errors.Is(err, ErrProviderTargetExists) {
-		t.Fatalf("expected ErrProviderTargetExists, got %v", err)
+	target, err := router.Route(context.Background(), RouteRequest{Provider: models.ProviderMock, ModelID: "model-a"})
+	if err != nil {
+		t.Fatalf("route: %v", err)
+	}
+	if target.Model.ID != "model-a" {
+		t.Fatalf("expected model-a, got %q", target.Model.ID)
 	}
 }
 
 func TestRouteUsesExactProviderTarget(t *testing.T) {
 	router := &DefaultRouter{
-		targets: ProviderTargets{
+		targets: map[models.ModelProvider]map[models.ModelID]ProviderClient{
 			models.ProviderOpenAI: {
 				"model-a": {Provider: models.ProviderOpenAI, Model: models.Model{ID: "model-a", APIModel: "openai-model"}, Client: &fakeClient{content: "openai"}},
 			},
@@ -113,7 +97,7 @@ func TestRouteUsesExactProviderTarget(t *testing.T) {
 
 func TestRouteDoesNotFallback(t *testing.T) {
 	router := &DefaultRouter{
-		targets: ProviderTargets{
+		targets: map[models.ModelProvider]map[models.ModelID]ProviderClient{
 			models.ProviderOpenAI: {
 				"model-a": {Provider: models.ProviderOpenAI, Model: models.Model{ID: "model-a"}, Client: &fakeClient{content: "openai"}},
 			},

@@ -18,7 +18,7 @@ type AgentConfig struct {
 	WorkingDir  string
 	Memory      MemoryConfig
 	Prompt      PromptConfig
-	Provider    AgentProviderRouter
+	Provider    ProviderRoutingConfig
 	Tools       []toolcore.BaseTool
 	Debug       bool
 	AutoCompact bool
@@ -35,14 +35,42 @@ type PromptConfig struct {
 	AgentSystemKey string
 }
 
-type AgentProviderRouter struct {
-	Router        provider.Router
-	AgentProvider AgentProvider
+type ProviderRoutingConfig struct {
+	Router       provider.Router
+	DefaultModel ModelTarget
 }
 
-type AgentProvider struct {
+type ModelTarget struct {
 	Provider models.ModelProvider
 	ModelID  models.ModelID
+}
+
+type ProviderConfig struct {
+	Provider models.ModelProvider `json:"provider"`
+	APIKey   string               `json:"apiKey,omitempty"`
+	BaseURL  string               `json:"baseURL,omitempty"`
+	Models   []ModelConfig        `json:"models"`
+	Disabled bool                 `json:"disabled,omitempty"`
+}
+
+type ModelConfig struct {
+	ModelID         models.ModelID `json:"model_id"`
+	APIModel        string         `json:"api_model,omitempty"`
+	MaxTokens       int64          `json:"maxTokens,omitempty"`
+	ReasoningEffort string         `json:"reasoning_effort,omitempty"`
+}
+
+func ApplyModelConfig(model models.Model, modelCfg ModelConfig) models.Model {
+	if modelCfg.APIModel != "" {
+		model.APIModel = modelCfg.APIModel
+	}
+	if modelCfg.MaxTokens > 0 {
+		model.MaxTokens = modelCfg.MaxTokens
+	}
+	if modelCfg.ReasoningEffort != "" {
+		model.ReasoningEffort = modelCfg.ReasoningEffort
+	}
+	return model
 }
 
 func DefaultAgentConfig() AgentConfig {
@@ -77,7 +105,7 @@ func validateConfig(cfg AgentConfig) error {
 	if cfg.Provider.Router == nil {
 		return fmt.Errorf("provider router is required")
 	}
-	if cfg.Provider.AgentProvider.Provider == "" || cfg.Provider.AgentProvider.ModelID == "" {
+	if cfg.Provider.DefaultModel.Provider == "" || cfg.Provider.DefaultModel.ModelID == "" {
 		return fmt.Errorf("agent provider and model are required")
 	}
 	if cfg.Prompt.Prompt == nil {

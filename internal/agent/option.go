@@ -2,15 +2,19 @@ package agent
 
 import (
 	"context"
+	"fmt"
+
 	"ferryman-agent/internal/prompt"
 
 	mcptools "ferryman-agent/internal/capability/mcp"
 	datadb "ferryman-agent/internal/data/db"
+	clientfactory "ferryman-agent/internal/data/llm/client/factory"
+	"ferryman-agent/internal/data/llm/models"
 	"ferryman-agent/internal/data/repo"
 	"ferryman-agent/internal/memory/history"
 	"ferryman-agent/internal/memory/message"
 	"ferryman-agent/internal/memory/session"
-	providersvc "ferryman-agent/internal/provider"
+	"ferryman-agent/internal/provider"
 	"ferryman-agent/internal/security/permission"
 	toolcore "ferryman-agent/internal/tools"
 )
@@ -65,21 +69,62 @@ func WithMemoryServices(sessions session.Service, messages message.Service, hist
 	}
 }
 
-func WithAgentProviders(agentProvider AgentProvider, configs ...providersvc.ProviderConfig) Option {
+func WithProviderConfigs(defaultModel ModelTarget, configs ...ProviderConfig) Option {
 	return func(cfg *AgentConfig) error {
-		router, err := providersvc.NewDefaultRouter(configs...)
-		if err != nil {
-			return err
+		targets := map[models.ModelProvider]map[models.ModelID]provider.ProviderClient{}
+		for _, providerCfg := range configs {
+			if providerCfg.Disabled {
+				continue
+			}
+			if providerCfg.Provider == "" {
+				return provider.ErrProviderNotConfigured
+			}
+			if len(providerCfg.Models) == 0 {
+				return fmt.Errorf("%w: %s", provider.ErrModelNotConfigured, providerCfg.Provider)
+			}
+
+			vendorClient, err := clientfactory.NewClient(
+				providerCfg.Provider,
+				clientfactory.WithAPIKey(providerCfg.APIKey),
+				clientfactory.WithBaseURL(providerCfg.BaseURL),
+			)
+			if err != nil {
+				return err
+			}
+
+			for _, modelCfg := range providerCfg.Models {
+				if modelCfg.ModelID == "" {
+					return fmt.Errorf("%w: empty model_id for %s", provider.ErrModelNotConfigured, providerCfg.Provider)
+				}
+
+				model := ApplyModelConfig(models.ResolveModel(providerCfg.Provider, modelCfg.ModelID), modelCfg)
+				if targets[providerCfg.Provider] == nil {
+					targets[providerCfg.Provider] = map[models.ModelID]provider.ProviderClient{}
+				}
+				if _, exists := targets[providerCfg.Provider][model.ID]; exists {
+					return fmt.Errorf("%w: %s/%s", provider.ErrProviderTargetExists, providerCfg.Provider, model.ID)
+				}
+
+				targets[providerCfg.Provider][model.ID] = provider.ProviderClient{
+					Provider: providerCfg.Provider,
+					Model:    model,
+					Client:   vendorClient,
+				}
+			}
 		}
-		cfg.Provider.Router = router
-		cfg.Provider.AgentProvider = agentProvider
+		cfg.Provider.Router = provider.NewDefaultRouter(targets)
+		cfg.Provider.DefaultModel = defaultModel
 		return nil
 	}
 }
 
-func WithAgentProviderRouter(agentProviderRouter AgentProviderRouter) Option {
+func WithAgentProviders(defaultModel ModelTarget, configs ...ProviderConfig) Option {
+	return WithProviderConfigs(defaultModel, configs...)
+}
+
+func WithProviderRouting(providerRouting ProviderRoutingConfig) Option {
 	return func(cfg *AgentConfig) error {
-		cfg.Provider = agentProviderRouter
+		cfg.Provider = providerRouting
 		return nil
 	}
 }
